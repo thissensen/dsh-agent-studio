@@ -1,0 +1,25 @@
+node_modules/
+*.log
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# 文档站（VitePress）构建产物与缓存
+docs/.vitepress/dist
+docs/.vitepress/cache
+
+# 测试与自检：本地保留、不进仓库
+#   （两个例外：link-deps.mjs 是「从源码安装」的必需步骤；verify-docs.mjs 是 CI 跑的一致性检查）
+/tests/
+/scripts/verify-*.mjs
+!/scripts/verify-docs.mjs
+/vitest.config.ts
+/vitest.setup.ts
+
+# 注：内部工作区（工作笔记、真机脚本与证据）放在仓库之外，不属于本仓库

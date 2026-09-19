@@ -1,0 +1,15 @@
+# dsh-agent-studio 的 bundle patch：把 host 半边作为一个 row 插进 composition。
+#
+# 生效路径：package.json 的 `dsh.bundle.patch` 指向本文件；`dsh plugin add` 只会把
+# 带了这个字段的包追加进 profile 的 `dsh.profile.bundles`，没有它就被当成普通依赖
+# 并告警（判据来自 dsh-config-manager 的 patch 注释，已在其已发布产物里核实）。
+#
+# row 的 id 必须与 host 插件（lib/index.js）导出的 `name` 一致，否则 patch
+# 定位不到对应的 row。
+#
+# 本地开发安装（把 <克隆目录> 换成这份源码所在的目录）：
+#   dsh plugin --profile desktop add link:<克隆目录>/dsh-agent-studio
+
+- insert:
+    - id: agent-studio
+      name: 'dsh-agent-studio'

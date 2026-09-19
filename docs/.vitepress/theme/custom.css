@@ -1,0 +1,16 @@
+/* 品牌色：把 VitePress 默认的紫色换成 DeepSeek 蓝，让整站（链接、按钮、侧边栏
+   激活项、首页渐变标题）统一到插件所属生态的色调。默认主题的所有强调色都走
+   这组变量，所以这里只需覆盖变量，不用碰任何组件样式。 */
+:root {
+    --vp-c-brand-1: #4d6bfe;
+    --vp-c-brand-2: #6b83ff;
+    --vp-c-brand-3: #4d6bfe;
+    --vp-c-brand-soft: rgba(77, 107, 254, 0.14);
+}
+
+.dark {
+    --vp-c-brand-1: #7c92ff;
+    --vp-c-brand-2: #94a6ff;
+    --vp-c-brand-3: #6b83ff;
+    --vp-c-brand-soft: rgba(124, 146, 255, 0.16);
+}

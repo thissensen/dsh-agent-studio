@@ -1,0 +1,113 @@
+{
+  "name": "dsh-agent-studio",
+  "version": "0.1.2",
+  "license": "MIT",
+  "type": "module",
+  "description": "把某个 agent 预设下模型实际看到的系统提示词、工具目录变成可视化配置，并支持为每个子代理角色单独覆盖。不写宿主预设文件。",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "cordis",
+    "agent-preset",
+    "system-prompt"
+  ],
+  "homepage": "https://thissensen.github.io/dsh-agent-studio/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thissensen/dsh-agent-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/thissensen/dsh-agent-studio/issues"
+  },
+  "scripts": {
+    "build": "pnpm build:host && pnpm build:client",
+    "build:host": "tsc -p tsconfig.json",
+    "build:client": "vite build && vite build --config vite.panel.config.ts",
+    "watch:host": "tsc -p tsconfig.json --watch",
+    "watch:client:shell": "vite build --watch",
+    "watch:client:panel": "vite build --config vite.panel.config.ts --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client/index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.1.6-alpha.2"
+  },
+  "files": [
+    "lib",
+    "client",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "assets"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh-agent-presets": "*",
+    "@deepseek-ai/dsh-scope": "*",
+    "@deepseek-ai/dsh-settings": "*",
+    "@deepseek-ai/dsh-system-prompt": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-agent-presets": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-scope": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-system-prompt": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.20.3",
+    "@types/react": "~18.3.31",
+    "@types/react-dom": "~18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "jsdom": "^30.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^6.0.3",
+    "viewerjs": "^1.14.0",
+    "vite": "^6.4.3",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-group-icons": "^1.7.6",
+    "vitepress-plugin-image-viewer": "^1.1.6",
+    "vitepress-plugin-nprogress": "^0.1.1",
+    "vitest": "^4.1.11"
+  }
+}
