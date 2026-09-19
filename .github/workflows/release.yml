@@ -1,0 +1,91 @@
+# Release：推送 `v*` tag 时自动发布 npm + 创建 GitHub Release。
+#
+# 用法（以后发新版本）：
+#   ① 改 package.json 的 version（如 0.2.0）→ 提交 → 推送 main；
+#   ② git tag v0.2.0 && git push origin v0.2.0；
+#   ③ 本 workflow 自动：校验版本一致 → 构建 → 发 npm → 建 Release（更新内容为自动初稿，
+#      可在网页上随时编辑）。
+#
+# 幂等：npm 上已有同版本则跳过发布；Release 已存在则跳过创建——重跑不会炸。
+# token：npm 凭据存在仓库 secret `NPM_TOKEN`（加密；本地用 6、工具/发布/存-github-secret.mjs 写入）。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      # tag 与 package.json 的版本必须一致（防手滑打错 tag）
+      - name: 校验 tag 与版本号一致
+        run: |
+          node -e "const p=require('./package.json'); const t=process.env.GITHUB_REF_NAME.replace(/^v/,''); if(p.version!==t){console.error('✗ tag '+t+' 与 package.json '+p.version+' 不一致');process.exit(1)} console.log('版本一致：'+t)"
+
+      - run: pnpm build
+
+      - run: node scripts/verify-docs.mjs
+
+      # 幂等发布：npm 上已有同版本则跳过（补 tag / 重跑都安全）。
+      # 失败不中断 job —— Release 与安装包的创建不该被 npm 的 2FA / 风控连带拖死；
+      # 结尾有一步专门把 npm 的失败重新标红，问题不会被吞掉。
+      - name: 发布到 npm
+        id: npm-publish
+        continue-on-error: true
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "dsh-agent-studio@$V" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "dsh-agent-studio@$V 已存在于 npm，跳过发布"
+          else
+            npm publish --registry=https://registry.npmjs.org/
+            echo "已发布 dsh-agent-studio@$V"
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Release 说明为自动初稿（按提交生成），创建后可在网页上随时编辑
+      - name: 创建 GitHub Release
+        if: always()
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            && echo "Release 已存在，跳过" \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # 把打好的 tarball 挂到 Release：与 npm 上那份同源，离线/内网用户下载后可直接 add
+      - name: 上传安装包到 Release
+        if: always()
+        run: |
+          V=$(node -p "require('./package.json').version")
+          npm pack --pack-destination "$RUNNER_TEMP"
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/dsh-agent-studio-$V.tgz" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # npm 那步失败过就把 job 标红：Release 照建，但问题必须看得见
+      - name: 汇总发布结果
+        if: steps.npm-publish.outcome == 'failure'
+        run: |
+          echo "::error::npm 发布失败（见上一步日志）；Release 与安装包已照常创建。"
+          exit 1

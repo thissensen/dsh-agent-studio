@@ -1,0 +1,60 @@
+# 文档站部署：main 每次推送时构建 VitePress 并发布到 GitHub Pages。
+#
+# 为什么没有 paths 过滤（2026-09-20 定）：本仓库是「单提交 + 强推」的工作流——每次推送都在
+# 重写 main 的历史，前后两个版本**没有共同祖先**，GitHub 在这种 push 上算不出变更文件集，
+# paths 过滤会静默判空 ⇒ workflow 不触发（实测：带 paths 时从未被 push 触发过，只能手动跑）。
+# 去掉 paths ⇒ 每次推送必部署，代价只是多跑一次构建。
+#
+# 首次启用需要一次性操作：仓库 Settings → Pages → Source 选 "GitHub Actions"。
+# base 用环境变量注入（/dsh-agent-studio/），本地开发不受影响。
+name: Deploy docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # 文档站只依赖 devDependencies（VitePress 等），不需要宿主的 @deepseek-ai/* 包
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm docs:build
+        env:
+          DOCS_BASE: /dsh-agent-studio/
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

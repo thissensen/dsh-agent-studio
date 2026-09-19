@@ -1,0 +1,41 @@
+# CI：推送与 PR 时的基础验证。
+#
+# 为什么只有这几步：更全的检查依赖宿主包（`@deepseek-ai/*`）——这些包只随 DSH 安装、
+# 不在 npm registry，CI 上装不出来。本文件里的四步（install / typecheck / build /
+# verify-docs）已实测在无宿主包环境可跑通；其余检查留在装有 DSH 的本机跑。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm build
+
+      - run: node scripts/verify-docs.mjs
