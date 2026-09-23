@@ -11,7 +11,7 @@
 
 模型每一轮看到的东西就三份：**系统提示词**、**工具目录**、**技能目录**。随着插件、工具、MCP 越装越多，这三份只会越来越大，拖累模型表现。另外 DSH 目前给子代理的配置极其简陋，没法轻松配置它的提示词、工具、技能、模型和思考强度。
 
-本插件**不写、不删、不改宿主的任何预设文件**，卸载即恢复原状。
+本插件的配置**存在自己的数据里**，不改动宿主既有的预设定义，卸载即恢复原状。
 
 它把 Agent 拆成可随意拼装的积木：提示词、工具、技能、模型拼成一个完整 Agent，**子代理也一样能高度定制**；预设可以随手新建；兼容官方 PTC 模式；支持设备备用模型。
 
@@ -46,7 +46,7 @@ dsh plugin --profile web add dsh-agent-studio
 到 [Releases](https://github.com/thissensen/dsh-agent-studio/releases) 下载 `dsh-agent-studio-<版本>.tgz`，它就是 npm 上那份包，`lib/` 与 `client/` 的构建产物都在里面，不用自己构建：
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.2.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.1.3.tgz"
 ```
 
 包放在哪个目录都行，把路径写对即可（`./` 开头或绝对路径），文件名里的版本号换成你实际下载的那个。**离线、内网环境走这条。**
@@ -188,7 +188,7 @@ agent-studio:
 ## 兼容性
 
 - **目标环境**：纯 Web 版 DSH（`dsh --profile web`），社区桌面版也支持。
-- **依赖的宿主服务**（`peerDependencies`，全部 optional）：`dsh-agent-presets` / `dsh-scope` / `dsh-settings` / `dsh-system-prompt` / `dsh-tools` / `schemastery`。官方 DSH 升级导致某个服务缺席时，逐项降级，不抛错。
+- **依赖的宿主服务**（`peerDependencies`，全部 optional）：`dsh-agent-preset-registry` / `dsh-scope` / `dsh-settings` / `dsh-system-prompt` / `dsh-tools` / `dsh-util-values` / `schemastery`。官方 DSH 升级导致某个服务缺席时，逐项降级，不抛错。
 - **界面语言与主题**跟随平台，自带中文 / English 两套文案，深色浅色都能看。
 - **client 半边零构建**：`client/index.js` 是壳（启动时加载），`client/parts/panel.js` 是面板（由 host 路由运行时按需伺服）。
 

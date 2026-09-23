@@ -3,6 +3,7 @@
 ## 环境要求
 
 - **DSH（DeepSeek Harness）**：纯 Web 版（`dsh --profile web`）与桌面版都支持。桌面版就是 Web 版加一层 Electron 壳，两边共用同一套 host 逻辑。
+- **版本**：需要 **0.1.7 及以上**。预设在这版里从「目录里的文件」改成了「插件声明的列表」，本插件依赖随之新增的 `@deepseek-ai/dsh-agent-preset-registry`（声明为 peerDependency）；装在更早的版本上会因为缺这个包而失效。
 - 本插件不挑操作系统，Windows / macOS / Linux 都能用。
 
 ## 三条安装路线
@@ -30,7 +31,7 @@ dsh plugin --profile desktop add dsh-agent-studio
 到 [Releases](https://github.com/thissensen/dsh-agent-studio/releases) 下载 `dsh-agent-studio-<版本>.tgz`——它就是 npm 上那份包，`lib/` 与 `client/` 的构建产物都在里面，不用自己构建：
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.2.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.1.3.tgz"
 ```
 
 包放在哪个目录都行，把路径写对即可（`./` 开头或绝对路径），文件名里的版本号换成你实际下载的那个。**离线、内网环境走这条。**
@@ -71,4 +72,4 @@ dsh plugin --profile web add "link:<本目录的绝对路径>"
 dsh plugin --profile web remove dsh-agent-studio
 ```
 
-卸载即恢复原状。本插件不写、不删、不改宿主的任何预设文件，所有配置存在插件自己的数据里；移除后平台预设的装配回到从没装过的样子。
+卸载即恢复原状。所有配置存在插件自己的数据里，宿主既有的预设定义一个都不改；移除后平台预设的装配回到从没装过的样子。

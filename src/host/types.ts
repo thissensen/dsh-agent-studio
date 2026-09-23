@@ -1,9 +1,10 @@
 /**
  * 项目内的共享类型：配置领域模型 + 用到的宿主上下文形状。
  *
- * 宿主（cordis / dsh-*）没有可用的类型声明（见 `types/dsh-host.d.ts` 的说明），
- * 这里只声明**本项目实际用到的成员**，够用即可、不追全量。服务接口带索引签名是
- * 刻意的：各文件可以在自己那边断言更细的形状，不必回头改这个文件（改它要串行）。
+ * 宿主（cordis / dsh-*）的类型声明从 0.1.7 起随包发布，但本项目**不直接 import 它们的
+ * 类型**（那会把插件与平台包的类型入口绑死，而两边的解析路径在 link 装法下未必一致）。
+ * 这里只声明**本项目实际用到的成员**，够用即可、不追全量；写之前一律去
+ * `<DSH 安装目录>/node_modules/@deepseek-ai/` 的源码注册处核对（规范第 60 条）。
  *
  * @module dsh-agent-studio/host-types
  */
@@ -91,6 +92,45 @@ export interface BindingsConfig {
 }
 
 /**
+ * 一条构成声明里的 row（预设的 `plugins` 元素）。
+ *
+ * **这是平台的 `EntryOptions`**（`cordis-plugin-loader`），本插件只声明用到的几个键。
+ * `disabled` 可能是布尔（写死的开关），也可能是**表达式节点** `{ __jsExpr: 源码 }`
+ * ——形状就是 `!!js` 标量在 YAML 里的写法，`isJsExpr()` 靠 `'__jsExpr' in value` 认它。
+ */
+export interface PresetPluginRow {
+    id?: string
+    name?: string
+    config?: unknown
+    disabled?: boolean | { __jsExpr: string }
+    group?: boolean
+    isolate?: unknown
+    [key: string]: unknown
+}
+
+/**
+ * 本插件建出来的预设。
+ *
+ * 0.1.7 起平台把预设从「目录里的文件」改成「插件声明」（`agentPresets.register(definition)`），
+ * 而**注册是运行时的、不落盘**——同一个插件在下次启动时只是又一次被装配，注册全都消失。
+ * 所以本插件把定义存进**自己的配置**（平台负责落盘），启动时照着重新注册；
+ * 「可删」的判据就是「定义在这份清单里」（注销器只在本进程活着，重启后由这份清单补出）。
+ *
+ * **存的是 YAML 文本，不是解析好的对象**（2026-09-24 真机实测）：平台的
+ * `settings` 写入通道在重建 volatile 配置时会把 `!!js` 表达式**求值成普通值**
+ * （磁盘上留下 `disabled: true`），于是「按平台 / 环境开合」的语义会在新建那一刻被固化。
+ * 文本是惰性的、不会被求值，读出来再解析即可原样还原表达式节点——这份文本用的就是平台
+ * 自己的 entry-list 方言（`!!js` 标量），与 `readDocument()` 给的形态同源。
+ */
+export interface PresetDefinitionConfig {
+    id?: string
+    name?: string
+    description?: string
+    /** 构成声明（entry-list YAML 文本；`plugins` 数组那一份）。 */
+    presetYaml?: string
+}
+
+/**
  * 插件配置。
  *
  * 字段全部可选：读取时 schema 的 `.default()` 会补值，但**写入端点的部分键**
@@ -99,7 +139,14 @@ export interface BindingsConfig {
  */
 export interface StudioConfig {
     version?: number
-    createdPresets?: string[]
+    /**
+     * 本插件建出来的预设（定义原文；启动时照它重新注册，见 `PresetDefinitionConfig`）。
+     *
+     * 类型是定义对象——但**旧盘上的数据可能是字符串 id**（那时预设是平台目录里的文件，
+     * 这里只记来源标记）。schema 认那种形态只为「旧配置不至于让整条 row 失效」，读出时由
+     * `readConfig()` 归一成 `{ id }`；它没有构成声明、因而注册不了（见 `PresetDefinitionSchema`）。
+     */
+    createdPresets?: PresetDefinitionConfig[]
     agents?: AgentConfig[]
     promptSets?: PromptSetConfig[]
     toolSets?: ToolSetConfig[]
@@ -118,15 +165,25 @@ export interface Logger {
     debug?(...args: unknown[]): void
 }
 
-/** 本插件设置命名空间的 scope（`settings.register` 的返回值）。 */
+/**
+ * 本插件自造的配置作用域（`index.ts` 里构造）。
+ *
+ * 读的那一半解包平台交进来的 config；写的那一半把 patch 交回平台的 `settings` 服务。
+ * 三层（生效 / 派活 / 降级）与 HTTP 端点只认这个接口，跟平台实现的换法解耦。
+ */
 export interface SettingsScope {
     get(): StudioConfig
     update(patch: unknown): Promise<void>
-    [key: string]: unknown
 }
 
+/**
+ * 平台的 `settings` 服务（实现是 `SettingsForms`）。只声明本项目用到的成员。
+ *
+ * `ns` 是 profile entry id（就是 `SETTINGS_NAMESPACE`）。合并语义：对象递归、
+ * **数组整体替换**、`undefined` 跳过 ⇒ 可增删的集合一律用数组（见 `config.ts`）。
+ */
 export interface SettingsService {
-    register(namespace: string, schema: unknown, options?: { base?: unknown }): SettingsScope
+    update(ns: string, patch: object, expectedRevision?: number): Promise<void>
     [key: string]: unknown
 }
 

@@ -13,7 +13,7 @@ Every turn, the model sees three things: the **system prompt**, the **tool catal
 
 This plugin fixes both. It turns an agent into bricks you can assemble freely: prompt, tools, skills, model. **Subagents get the same treatment**, presets can be created on the spot, and official PTC mode is supported.
 
-It **never writes, deletes or edits any of the host's preset files**, and uninstalling restores everything.
+Its configuration **lives in the plugin's own data**, it leaves the host's existing presets untouched, and uninstalling restores everything.
 
 It pairs well with [dsh-context](https://github.com/bowenliang123/dsh-context), which shows you what prompt, tools and skills a turn actually carried.
 
@@ -47,7 +47,7 @@ dsh plugin --profile web add dsh-agent-studio
 Download `dsh-agent-studio-<version>.tgz` from [Releases](https://github.com/thissensen/dsh-agent-studio/releases). It is the very artifact npm serves, with the `lib/` and `client/` build output already inside — no build step:
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.2.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.1.3.tgz"
 ```
 
 The file can live in any directory as long as the path is right (`./` or an absolute path); swap in whatever version you actually downloaded. **Use this route for offline or air-gapped setups.**
@@ -189,7 +189,7 @@ agent-studio:
 ## Compatibility
 
 - **Target environment**: the pure web build of DSH (`dsh --profile web`); community desktop builds work too.
-- **Host services it depends on** (`peerDependencies`, all optional): `dsh-agent-presets` / `dsh-scope` / `dsh-settings` / `dsh-system-prompt` / `dsh-tools` / `schemastery`. When a DSH upgrade leaves one of them missing, the plugin degrades item by item instead of throwing.
+- **Host services it depends on** (`peerDependencies`, all optional): `dsh-agent-preset-registry` / `dsh-scope` / `dsh-settings` / `dsh-system-prompt` / `dsh-tools` / `dsh-util-values` / `schemastery`. When a DSH upgrade leaves one of them missing, the plugin degrades item by item instead of throwing.
 - **Interface language and theme** follow the platform; Chinese and English copy ship with it, and both dark and light themes are supported.
 - **The client half has no build step**: `client/index.js` is the shell (loaded at startup) and `client/parts/panel.js` is the panel (served on demand by a host route).
 

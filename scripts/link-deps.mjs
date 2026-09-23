@@ -16,6 +16,9 @@
  * `node_modules/@deepseek-ai/` 下建一个目录链接，指向 profile 里那份。
  *
  * 用法：node scripts/link-deps.mjs [profile 名，默认 desktop]
+ *
+ * 宿主包目录的来源优先级：`DSH_HOST_DIR`（显式指定某个 dsh 安装目录的
+ * node_modules）→ `$DSH_HOME` → `~/.dsh` → `~/.dsh-beta` → `DSH_APP_DIR`。
  */
 
 import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
@@ -41,6 +44,16 @@ const LOCAL_SCOPE_DIR = join(PROJECT_ROOT, 'node_modules', '@deepseek-ai')
  * @returns 宿主 `@deepseek-ai` 目录的绝对路径；探不到时返回 `undefined`，由调用方报错。
  */
 function resolveHostScopeDir() {
+    // 适配期显式覆盖：直接指向某个 dsh 安装目录的 node_modules（例：
+    // D:/Program Files/dsh/node_modules）。用途是把「项目开发用的宿主包来源」
+    // 与「profile 运行时的 link 层」解耦——平台升版时可以先只切开发侧，
+    // 不动正在跑的 GUI 所依赖的那一层。
+    const explicit = process.env.DSH_HOST_DIR
+    if (explicit !== undefined && explicit !== '') {
+        const dir = join(explicit, HOST_SCOPE)
+        if (existsSync(dir)) return dir
+    }
+
     const homes = []
     if (process.env.DSH_HOME !== undefined && process.env.DSH_HOME !== '') homes.push(process.env.DSH_HOME)
     homes.push(join(homedir(), '.dsh'), join(homedir(), '.dsh-beta'))

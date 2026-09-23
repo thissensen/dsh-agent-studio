@@ -32,7 +32,7 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactElement, ReactNode, CSSProperties, ChangeEvent } from 'react'
-import { Button, Checkbox, IconChevronDownOutline14, IconChevronUpOutline14, Input, Menu, Modal, Pill, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, Input, Menu, Modal, Pill, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PlatformTranslate, CopyKey, Translate } from '../locales'
 import { createTranslate, translateZh } from '../locales'
@@ -143,8 +143,9 @@ interface EffortInfo {
 /** 平台预设列表里的单个预设。 */
 interface Preset {
     id: string
-    name?: string
-    description?: string
+    /** 平台发布的名字；**内置预设不发布**（host 那边是 `null`）⇒ 显示名走 `presetText()`。 */
+    name?: string | null
+    description?: string | null
     writable?: boolean
     /** 平台把提示词段钉死了（`complete: true`）——「提示词集」卡片的装载区据此禁用。 */
     promptFixed?: boolean
@@ -288,7 +289,7 @@ interface SectionPickerState {
 /** 面板本体的视图状态（loading / ready / failed）。 */
 type ViewState =
     | { status: 'loading'; config?: StudioConfig | null }
-    | { status: 'ready'; config?: StudioConfig | null; sessions: ObservationUnit[]; cached: Record<string, ObservationUnit>; presets: Preset[]; models: ProviderModel[]; modelWarnings: string[]; skills: SkillRow[] }
+    | { status: 'ready'; config?: StudioConfig | null; sessions: ObservationUnit[]; cached: Record<string, ObservationUnit>; presets: Preset[]; authorable: boolean; models: ProviderModel[]; modelWarnings: string[]; skills: SkillRow[] }
     | { status: 'failed'; config?: StudioConfig | null; message: string }
 
 /** 视图状态里「数据都在」的那一支（嵌套函数里读 ready 字段用）。 */
@@ -443,6 +444,8 @@ interface FallbackListProps {
 }
 interface PresetBarProps {
     presets: Preset[]
+    /** 平台的预设创作入口在不在（不在 = 新建与删除都置灰）。 */
+    authorable: boolean
     selectedPresetId: string | null
     busy: boolean
     form: BarForm
@@ -654,10 +657,15 @@ async function loadConfig(): Promise<StudioConfig | null> {
     return (data.config as StudioConfig | null | undefined) ?? null
 }
 
-/** 读平台预设列表（id、显示名、描述、可写性）。 */
-async function loadPresets(): Promise<Preset[]> {
+/** 读平台预设列表（id、显示名、描述、可写性、能否创作）。 */
+async function loadPresets(): Promise<{ presets: Preset[]; authorable: boolean }> {
     const data = await fetchJson(ENDPOINTS.presets)
-    return Array.isArray(data.presets) ? data.presets : []
+
+    return {
+        presets: Array.isArray(data.presets) ? data.presets : [],
+        // 平台没有创作入口（没有 `register`）时，新建与删除都办不成——按钮据此置灰。
+        authorable: data.authorable === true,
+    }
 }
 
 /**
@@ -1097,6 +1105,39 @@ function setLabel(set: DraftItem | undefined, t: Translate): string {
 }
 
 /**
+ * 平台**内置预设**的名字与说明键。
+ *
+ * 平台不发布这 4 个预设的 `name` / `description` —— 判据与平台一致（`dsh-agent-preset-registry`
+ * 的 `isBuiltInPreset()`：没发布名字且 id 命中这张表），文案由**客户端字典**给。
+ * 面板直接读 `name` 的话，整排 Tab 会显示成 `standard` / `ptc`。
+ */
+const BUILT_IN_PRESET_KEYS: Record<string, { name: CopyKey; hint: CopyKey }> = {
+    standard: { name: 'preset.builtIn.standard', hint: 'preset.builtIn.standardHint' },
+    ptc: { name: 'preset.builtIn.ptc', hint: 'preset.builtIn.ptcHint' },
+    minimal: { name: 'preset.builtIn.minimal', hint: 'preset.builtIn.minimalHint' },
+    cordis: { name: 'preset.builtIn.cordis', hint: 'preset.builtIn.cordisHint' },
+}
+
+/**
+ * 预设的显示文案：内置预设查字典，其余用预设自己发布的，都没有才退回 id。
+ *
+ * @param preset - 面板拿到的那一行预设。
+ * @param t - 当前语言的翻译函数。
+ * @returns `name` / `hint` 供界面显示；`平台已发布` 为假表示这份文案是**本地字典补的**
+ *          ——新建预设时要显式带上它（host 那边继承不到来源预设没发布的名字）。
+ */
+function presetText(preset: Preset, t: Translate): { name: string; hint: string; 平台已发布: boolean } {
+    // 名字为空 = 平台没发布（内置预设就是这样）。host 把平台的 `undefined` 归一成了 `null`
+    // （见 `presets.ts` 的 `listPresets()`），两种都当「没发布」。
+    if (preset.name === null || preset.name === undefined) {
+        const keys = BUILT_IN_PRESET_KEYS[preset.id]
+        if (keys !== undefined) return { name: t(keys.name), hint: t(keys.hint), 平台已发布: false }
+    }
+
+    return { name: preset.name ?? preset.id, hint: preset.description ?? preset.id, 平台已发布: true }
+}
+
+/**
  * 把某个集装进代理时的重叠校验：已装的集之间不许有同名段 / 同工具。
  *
  * 与 host 侧 `config.js` 的 `findLoadConflict` 同源，但这里是**装载那一刻**的即时
@@ -1352,7 +1393,7 @@ function menuAnchor(props: MenuAnchorProps): ReactElement {
         h('span', {
             key: 'caret',
             style: { display: 'inline-flex', flex: 'none', color: 'var(--dsw-alias-label-tertiary)' },
-        }, h(IconChevronDownOutline14, { size: 12 })),
+        }, h(IconChevronDownOutlineRegular, { size: 12 })),
     ])
 }
 
@@ -1548,7 +1589,7 @@ function moveButtons(props: MoveButtonsProps, t: Translate): ReactElement[] {
                 'aria-label': t('common.moveUp'),
                 onClick: () => onMove(-1),
                 disabled: isTop,
-            }, h(IconChevronUpOutline14, { key: 'icon', size: 12 })),
+            }, h(IconChevronUpOutlineRegular, { key: 'icon', size: 12 })),
             h(Button, {
                 key: 'down',
                 type: 'button',
@@ -1556,7 +1597,7 @@ function moveButtons(props: MoveButtonsProps, t: Translate): ReactElement[] {
                 'aria-label': t('common.moveDown'),
                 onClick: () => onMove(1),
                 disabled: isBottom,
-            }, h(IconChevronDownOutline14, { key: 'icon', size: 12 })),
+            }, h(IconChevronDownOutlineRegular, { key: 'icon', size: 12 })),
         ]),
     ]
 }
@@ -1709,7 +1750,7 @@ function IdEditor(props: IdEditorProps) {
                 type: 'text',
                 value,
                 placeholder: t('preset.newId'),
-                onChange: (event) => {
+                onChange: (event: ChangeEvent<HTMLInputElement>) => {
                     setValue(event.target.value)
                     setError(null)
                 },
@@ -1994,7 +2035,7 @@ function SectionEditor(props: SectionEditorProps) {
                     type: 'text',
                     value: section.name,
                     placeholder: t('section.namePlaceholder'),
-                    onChange: (event) => updateAt(index, { name: event.target.value }),
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => updateAt(index, { name: event.target.value }),
                 }),
             }) : null,
             // 非自定义段**只读**（2026-09-18 用户拍板「能看不能改」）：它引用平台正文，
@@ -2098,7 +2139,7 @@ function SectionEditor(props: SectionEditorProps) {
                     style: { ...ROW_TAIL, fontSize: '13px' },
                     onClick: () => setPicker({ ...picker!, preview: isOpen ? null : section.name }),
                 }, [
-                    h(isOpen ? IconChevronUpOutline14 : IconChevronDownOutline14, { key: 'mark', size: 12 }),
+                    h(isOpen ? IconChevronUpOutlineRegular : IconChevronDownOutlineRegular, { key: 'mark', size: 12 }),
                     h('span', { key: 'label' }, section.name),
                 ]),
                 // 右侧这条预览用户点名要「能看完整内容」（2026-09-18）：复用问号浮层，
@@ -2151,7 +2192,7 @@ function SectionEditor(props: SectionEditorProps) {
             type: 'text',
             value: picker.query,
             placeholder: t('section.searchPlaceholder'),
-            onChange: (event) => setPicker({ ...picker, query: event.target.value }),
+            onChange: (event: ChangeEvent<HTMLInputElement>) => setPicker({ ...picker, query: event.target.value }),
         }),
         h('div', {
             key: 'list',
@@ -2205,7 +2246,7 @@ function GroupHead(props: GroupHeadProps) {
             'aria-expanded': folded !== true,
             'aria-label': t(folded === true ? 'section.expand' : 'section.collapse'),
             onClick: onToggle,
-        }, h(folded === true ? IconChevronDownOutline14 : IconChevronUpOutline14, { key: 'icon', size: 14 })),
+        }, h(folded === true ? IconChevronDownOutlineRegular : IconChevronUpOutlineRegular, { key: 'icon', size: 14 })),
         h('span', { key: 'title', style: INLINE_ROW }, [
             h(Checkbox, {
                 key: 'check',
@@ -2355,7 +2396,7 @@ function ToolPicker(props: ToolPickerProps) {
                 type: 'text',
                 value: search,
                 placeholder: t('tool.searchPlaceholder'),
-                onChange: (event) => setSearch(event.target.value),
+                onChange: (event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value),
             }),
             h(Button, {
                 key: 'all',
@@ -2522,7 +2563,7 @@ function SkillPicker(props: SkillPickerProps) {
                 type: 'text',
                 value: search,
                 placeholder: t('skill.searchPlaceholder'),
-                onChange: (event) => setSearch(event.target.value),
+                onChange: (event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value),
             }),
             h(Button, {
                 key: 'all',
@@ -2803,7 +2844,7 @@ function parseRetryCount(text: string): number {
  *
  * 第三排「保存区」不在里面——它是独立的吸附行（`SaveBar`），得挂在面板根下才吸得住。
  *
- * Tab 上写预设的**显示名**（平台 `preset.yml` 里的 `name`，一般是中文），
+ * Tab 上写预设的**显示名**（预设声明里的 `name`，一般是中文），
  * id 只在没给显示名时顶上，同时挂在 `title` 里备查——用户认的是「标准模式」
  * 而不是 `standard`。
  *
@@ -2811,7 +2852,7 @@ function parseRetryCount(text: string): number {
  */
 function PresetBar(props: PresetBarProps) {
     const {
-        presets, selectedPresetId, busy, form, agents, boundAgentId,
+        presets, authorable, selectedPresetId, busy, form, agents, boundAgentId,
         onSelect, onBind, onOpenForm, onFormPatch, onCloseForm,
         onCreatePreset, onDeletePreset, onExport, onRequestImport, onImportFile,
     } = props
@@ -2824,23 +2865,29 @@ function PresetBar(props: PresetBarProps) {
 
     // 平台 `Pill`：自绘胶囊退役（灰底 / 选中描边 / 12px 都跟平台走）；
     // 悬停说明（`title`）与点击照旧。
-    const tabs = presets.map((preset) => h(Pill, {
-        key: preset.id,
-        active: preset.id === selectedPresetId,
-        onClick: () => onSelect(preset.id),
-        title: preset.description ?? preset.id,
-    }, preset.name ?? preset.id))
+    const tabs = presets.map((preset) => {
+        const 文案 = presetText(preset, t)
+
+        return h(Pill, {
+            key: preset.id,
+            active: preset.id === selectedPresetId,
+            onClick: () => onSelect(preset.id),
+            title: 文案.hint,
+        }, 文案.name)
+    })
 
     const selectedPreset = presets.find((preset) => preset.id === selectedPresetId)
-    const canDelete = selectedPreset?.writable === true
+    const canDelete = selectedPreset?.writable === true && authorable === true
+    // 删除确认与绑定标签都要「当前选中的预设叫什么」，算一次共用。
+    const selectedPresetName = selectedPreset === undefined ? (selectedPresetId ?? '') : presetText(selectedPreset, t).name
 
     // 新建 / 删除都走弹窗（`Modal` 壳）：内联表单塞在管理条里会把整条挤变形，
     // 而「从哪个预设复制」这类一次性选择也没必要常驻在那里。
     let formModal = null
     if (form?.kind === 'create') {
-        const fromItems: MenuEntry[] = presets.map((preset) => ({ id: preset.id, label: preset.name ?? preset.id }))
+        const fromItems: MenuEntry[] = presets.map((preset) => ({ id: preset.id, label: presetText(preset, t).name }))
         const fromChoice = presets.find((preset) => preset.id === form.from)
-        const fromText = fromChoice === undefined ? form.from : fromChoice.name ?? fromChoice.id
+        const fromText = fromChoice === undefined ? form.from : presetText(fromChoice, t).name
 
         formModal = h(Modal, {
             key: 'createModal',
@@ -2887,7 +2934,7 @@ function PresetBar(props: PresetBarProps) {
                     type: 'text',
                     value: form.id,
                     placeholder: t('preset.newIdPlaceholder'),
-                    onChange: (event) => onFormPatch({ id: event.target.value }),
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => onFormPatch({ id: event.target.value }),
                 }),
             }),
             h(FieldRow, {
@@ -2898,13 +2945,13 @@ function PresetBar(props: PresetBarProps) {
                     type: 'text',
                     value: form.name,
                     placeholder: t('preset.optional'),
-                    onChange: (event) => onFormPatch({ name: event.target.value }),
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => onFormPatch({ name: event.target.value }),
                 }),
             }),
-            // 描述（2026-09-18 用户点名）：写进新预设的 `preset.yml`，会话的预设选择器里
-            // 那一行小字就是它。留空 = 从来源预设继承（平台复制的默认行为）。
+            // 描述（2026-09-18 用户点名）：写进新预设的定义，会话的预设选择器里
+            // 那一行小字就是它。留空 = 从来源预设继承。
             // 多行输入（用户点名）：描述可能是一段话，单行框里写不下、也读不全；
-            // 写入端 `yamlScalar` 对含换行的值走双引号标量，断行原样保留。
+            // 描述现在直接进配置里的定义（由平台的 YAML 落盘），断行原样保留。
             h(FieldRow, {
                 key: 'descriptionRow',
                 label: t('preset.description'),
@@ -2936,7 +2983,7 @@ function PresetBar(props: PresetBarProps) {
                 onCancel: onCloseForm,
             }, t),
         }, h('div', { key: 'confirm', style: STYLE.warning },
-            t('preset.deleteConfirm', { name: selectedPreset?.name ?? selectedPresetId ?? '' })))
+            t('preset.deleteConfirm', { name: selectedPresetName })))
     }
 
     // 绑定行只放「主代理」选择器：绑定说明挪到下面一行小字——它一占满整行，
@@ -2953,7 +3000,7 @@ function PresetBar(props: PresetBarProps) {
 
     const bindRow = h(FieldRow, {
         key: 'bind',
-        label: t('bar.bindLabel', { preset: selectedPreset?.name ?? selectedPresetId ?? '' }),
+        label: t('bar.bindLabel', { preset: selectedPresetName }),
         children: h(Menu, {
             // 同 `fromRow`：`FieldRow` 的摊平渲染要求数组元素带 key。
             key: 'menu',
@@ -2987,7 +3034,8 @@ function PresetBar(props: PresetBarProps) {
             variant: 'primary',
             size: 'sm',
             onClick: () => onOpenForm({ kind: 'create', from: selectedPresetId as string, id: '', name: '', description: '' }),
-            disabled: busy,
+            disabled: busy || authorable !== true,
+            title: authorable === true ? undefined : t('bar.notAuthorableTitle'),
         }, t('bar.createPreset')),
         h(Button, {
             key: 'removePreset',
@@ -2998,7 +3046,10 @@ function PresetBar(props: PresetBarProps) {
             size: 'sm',
             onClick: () => onOpenForm({ kind: 'delete' }),
             disabled: busy || canDelete !== true,
-            title: canDelete === true ? t('bar.deleteEnabledTitle') : t('bar.deleteDisabledTitle'),
+            // 灰的原因分两种，说清楚是哪一种：平台压根没有创作入口，还是这个预设不是这里建的。
+            title: canDelete === true
+                ? t('bar.deleteEnabledTitle')
+                : t(authorable === true ? 'bar.deleteDisabledTitle' : 'bar.notAuthorableTitle'),
         }, t('bar.deletePreset')),
     ])
 
@@ -3295,7 +3346,7 @@ function AgentPanel(props: AgentPanelProps) {
                     type: 'text',
                     value: agent.name,
                     placeholder: agent.id,
-                    onChange: (event) => onPatch({ name: event.target.value }),
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => onPatch({ name: event.target.value }),
                 }),
             }),
             h(FieldRow, {
@@ -3306,7 +3357,7 @@ function AgentPanel(props: AgentPanelProps) {
                     type: 'text',
                     value: agent.note,
                     placeholder: t('agent.notePlaceholder'),
-                    onChange: (event) => onPatch({ note: event.target.value }),
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => onPatch({ note: event.target.value }),
                 }),
             }),
         ],
@@ -3412,7 +3463,7 @@ function AgentPanel(props: AgentPanelProps) {
                     min: 0,
                     step: 1,
                     value: String(agent.maxRetries),
-                    onChange: (event) => onPatch({ maxRetries: parseRetryCount(event.target.value) }),
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => onPatch({ maxRetries: parseRetryCount(event.target.value) }),
                 }),
             }),
             h(RouteRows, {
@@ -3657,7 +3708,7 @@ function SetEditorCard(props: SetEditorCardProps) {
                     type: 'text',
                     value: set.name,
                     placeholder: set.id,
-                    onChange: (event) => onPatch(set.id, { name: event.target.value }),
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => onPatch(set.id, { name: event.target.value }),
                 }),
             }),
             h(FieldRow, {
@@ -3668,7 +3719,7 @@ function SetEditorCard(props: SetEditorCardProps) {
                     type: 'text',
                     value: set.note,
                     placeholder: t('set.notePlaceholder'),
-                    onChange: (event) => onPatch(set.id, { note: event.target.value }),
+                    onChange: (event: ChangeEvent<HTMLInputElement>) => onPatch(set.id, { note: event.target.value }),
                 }),
             }),
             renderEditor(set),
@@ -3725,7 +3776,7 @@ function PanelBody() {
         if (showLoading) setViewState({ status: 'loading' })
 
         try {
-            const [observationData, config, presets, modelCatalog, skills] = await Promise.all([
+            const [observationData, config, presetRows, modelCatalog, skills] = await Promise.all([
                 loadObservation(),
                 loadConfig(),
                 loadPresets(),
@@ -3735,22 +3786,23 @@ function PanelBody() {
 
             // 幽灵绑定自愈（见 `dropGhostBindings`）：滤过的版本同时充当草稿来源与
             // 脏检查的比较基准——自愈本身不该被算成「有未保存的改动」。
-            const liveConfig = dropGhostBindings(config, presets)
+            const liveConfig = dropGhostBindings(config, presetRows.presets)
 
             setViewState({
                 status: 'ready',
                 sessions: observationData.sessions,
                 cached: observationData.cached,
                 config: liveConfig,
-                presets,
+                presets: presetRows.presets,
+                authorable: presetRows.authorable,
                 models: modelCatalog.providers,
                 modelWarnings: modelCatalog.warnings,
                 skills,
             })
 
             setSelectedPresetId((current) => {
-                if (current !== null && presets.some((preset) => preset.id === current)) return current
-                return presets[0]?.id ?? null
+                if (current !== null && presetRows.presets.some((preset) => preset.id === current)) return current
+                return presetRows.presets[0]?.id ?? null
             })
 
             // 草稿只在这里建一次：之后**不再**跟随每一次刷新重建——v2 的草稿是全量
@@ -4120,16 +4172,24 @@ function PanelBody() {
         if (node !== null) node.click()
     }
 
-    /** 新建预设（走平台复制 API；描述由 host 侧补写进新预设的 `preset.yml`）。 */
+    /** 新建预设（host 侧读来源预设的构成声明、注册一份新 id 的定义，并把定义存进插件配置）。 */
     async function createPreset() {
         setActionState({ status: 'busy' })
 
         try {
+            // 显示名 / 描述留空 = 继承来源预设的（host 按来源定义的原文继承）。内置预设**没有**
+            // 自己发布的文案（平台不给这类预设发，见 `presetText()`）⇒ host 继承不到，由这里
+            // 按字典补上；否则新预设连名字都没有，面板与平台自己的预设选择器都会显示成 id。
+            const 来源预设 = (viewState as ReadyView).presets.find((preset) => preset.id === (barForm as CreateForm).from)
+            const 来源文案 = 来源预设 === undefined ? undefined : presetText(来源预设, t)
+            const 继承名 = 来源文案?.平台已发布 === true ? undefined : 来源文案?.name
+            const 继承描述 = 来源文案?.平台已发布 === true ? undefined : 来源文案?.hint
+
             const created = await postJson(ENDPOINTS.createPreset, {
                 from: (barForm as CreateForm).from,
                 id: (barForm as CreateForm).id,
-                name: (barForm as CreateForm).name === '' ? undefined : (barForm as CreateForm).name,
-                description: (barForm as CreateForm).description === '' ? undefined : (barForm as CreateForm).description,
+                name: (barForm as CreateForm).name === '' ? 继承名 : (barForm as CreateForm).name,
+                description: (barForm as CreateForm).description === '' ? 继承描述 : (barForm as CreateForm).description,
             })
 
             setBarForm(null)
@@ -4145,16 +4205,29 @@ function PanelBody() {
         }
     }
 
-    /** 删除当前预设（平台只让删用户自己建的）。 */
+    /** 删除当前预设（只删得掉本插件建的那些，判据在 host 侧）。 */
     async function deletePreset() {
         setActionState({ status: 'busy' })
 
         try {
-            await postJson(ENDPOINTS.deletePreset, { id: selectedPresetId })
+            const 被删预设 = selectedPresetId
+            await postJson(ENDPOINTS.deletePreset, { id: 被删预设 })
 
             setBarForm(null)
             setSelectedPresetId(null)
             await refresh(false)
+            // 平台那份绑定已随预设删掉，草稿里这条却还留着 ⇒ 补上同一刀：只摘掉指向它的
+            // 绑定，别的字段是用户的编辑，这条自愈不该顺手改它们。不摘的话，脏检查会把
+            // 这次**自愈**读成「用户改了没保存」——用户什么都没改，却被要求保存一次
+            // （坑册坑 40；比较基准那边由 `dropGhostBindings` 滤）。
+            setDraft((current) => {
+                if (current === null || 被删预设 === null) return current
+
+                const kept = current.bindings.presets.filter((binding) => binding.presetId !== 被删预设)
+                if (kept.length === current.bindings.presets.length) return current
+
+                return { ...current, bindings: { presets: kept } }
+            })
             setActionState({ status: 'ok', message: t('preset.deleted') })
 
         } catch (err) {
@@ -4556,6 +4629,7 @@ function PanelBody() {
         h(PresetBar, {
             key: 'bar',
             presets: viewState.presets,
+            authorable: viewState.authorable,
             selectedPresetId,
             busy,
             form: barForm,

@@ -39,6 +39,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
 import type { AgentConfig, BackgroundMode, Ctx, Logger, SettingsScope, StudioConfig } from './types.js'
 
@@ -82,8 +83,18 @@ interface SubagentRun {
 interface SubagentResult {
     stopReason?: string
     diagnostic?: string
-    output?: unknown
+    output?: JsonValue[]
 }
+
+/**
+ * 派活工具的结构化返回值（与 `output.schema` 的 oneOf 同形）。
+ *
+ * 显式声明而不是靠推断：没有它 `kind` 会被推成 `string`，与 schema 里那两个
+ * `const` 字面量对不上——平台按 `InferValue<O>` 校验 `execute` 的返回类型。
+ */
+type DelegateResult =
+    | { kind: 'continuable'; subagentId: string }
+    | { kind: 'foreground'; runId: string; output?: JsonValue[] }
 
 /** 模型侧 agent 的最小形状（只取本插件用到的 `session` / `ctx`）。 */
 interface ModelAgent {
@@ -333,7 +344,7 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
             schema: { type: 'string' },
             render: (_args: unknown, result: unknown) => [{ type: 'text', text: result as string }],
         },
-        execute(_args: unknown, exec: unknown) {
+        async execute(_args: unknown, exec: unknown) {
             const ownerId = ownerAgentIdFor(ctx, settingsScope, (exec as StudioToolExec).agent)
             if (ownerId === undefined) {
                 return '当前会话没有可用的代理配置（预设未绑定主代理，或子代理未登记）。'
@@ -345,7 +356,7 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
 
             return `代理「${ownerId}」名下的子代理：\n${lines.join('\n')}`
         },
-    } as unknown as import('@deepseek-ai/dsh-tools').ToolDefinition))
+    }))
 
     tools.register(defineTool({
         name: 'studio_delegate',
@@ -390,7 +401,7 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
                     properties: {
                         kind: { type: 'string', required: true, const: 'foreground' },
                         runId: { type: 'string', required: true },
-                        output: { type: 'array', required: true, items: { type: 'json' } },
+                        output: { type: 'array', items: { type: 'json' } },
                     },
                 },
             ] },
@@ -403,7 +414,7 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
         },
         isConcurrencySafe: () => true,
 
-        async execute(args: unknown, exec: unknown) {
+        async execute(args: unknown, exec: unknown): Promise<DelegateResult> {
             const a = args as DelegateArgs
             const callAgent = (exec as StudioToolExec).agent as ModelAgent | undefined
             if (callAgent === undefined) throw Error('派活需要一个调用者 agent，但 exec.agent 是空的。')
@@ -491,7 +502,7 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
                 await run.dispose()
             }
         },
-    } as unknown as import('@deepseek-ai/dsh-tools').ToolDefinition))
+    }))
 
     logger.info?.('[agent-studio] 派活工具已挂上 · studio_list_subagents / studio_delegate')
 }

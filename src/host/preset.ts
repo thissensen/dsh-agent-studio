@@ -15,7 +15,7 @@
  * @module dsh-agent-studio/preset
  */
 
-import { livePresetMounts, standingMountFor } from '@deepseek-ai/dsh-agent-presets'
+import { livePresetMounts, standingMountFor } from '@deepseek-ai/dsh-agent-preset-registry'
 import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
 import type { Ctx } from './types.js'
 
@@ -23,6 +23,15 @@ import type { Ctx } from './types.js'
 interface AgentPresetsService {
     composedPreset?(scope: unknown): string | undefined
 }
+
+/**
+ * 宿主 context 的类型。
+ *
+ * 本插件不依赖 `@deepseek-ai/cordis` 的类型包，而模块导出的 `standingMountFor`
+ * 要的是 cordis 的 `Context` ⇒ 用它的签名反推，既拿到准确类型又不新增依赖。
+ * 调用方传进来的本来就是 `agent.ctx`，断言成立。
+ */
+type HostContext = Parameters<typeof standingMountFor>[0]
 
 /**
  * 取当前 agent 真正跑在哪个预设上。
@@ -42,7 +51,7 @@ export function resolvePresetId(ctx: Ctx, agentCtx: unknown): string | undefined
     const fromService = (ctx.get?.('agentPresets') as AgentPresetsService | undefined)?.composedPreset?.(agentCtx)
     if (fromService !== undefined) return fromService
 
-    return standingMountFor(agentCtx)?.presetId
+    return standingMountFor(agentCtx as HostContext)?.presetId
 }
 
 /**
@@ -54,13 +63,16 @@ export function resolvePresetId(ctx: Ctx, agentCtx: unknown): string | undefined
  */
 export function describePresetResolution(ctx: Ctx, agentCtx: unknown): string[] {
     const service = ctx.get?.('agentPresets') as AgentPresetsService | undefined
-    const scopeKey = agentCtx === undefined ? undefined : scopeOf(agentCtx)
+    const scopeKey = agentCtx === undefined ? undefined : scopeOf(agentCtx as HostContext)
     const standingKey = scopeKey === undefined ? undefined : scopeParentOf(scopeKey)
 
     let scopeState = '未绑定'
     if (standingKey !== undefined) scopeState = '已绑预设'
     else if (scopeKey !== undefined) scopeState = '无父节点'
 
+    // 不传 `within`：这个函数只用于排障输出，而「进程里挂了哪些预设」正是要看的东西。
+    // （`within` 是给「一个进程里跑多个 runtime」的读者用的——那种场景下才需要传自己的
+    // root fiber 把别人的挂载排除掉；本插件的排障输出不需要这层过滤。）
     const mounted = livePresetMounts().map((mount) => mount.presetId)
 
     return [

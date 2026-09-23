@@ -1,9 +1,12 @@
 # 单包项目（没有 workspace 成员），这份文件在这里只有一个用途：放 pnpm 12 的配置。
 #
 # peerDependencies 里的宿主包由 scripts/link-deps.mjs 手工链接进 node_modules，
-# 不走 registry。而 registry 上 @deepseek-ai/dsh-agent-presets 的 latest 是
-# 0.0.1-rc.1（旧版），它的 peer 里依赖了早已改名的 @deepseek-ai/dsh-paths ——
-# 那个包在 registry 上不存在（实测 404），pnpm 一解析就整个安装失败。
+# 不走 registry。2026-09-19 实测：registry 上那个包（当时叫
+# @deepseek-ai/dsh-agent-presets，现已改名 dsh-agent-preset-registry）的 latest
+# 是 0.0.1-rc.1（旧版），它的 peer 里依赖了早已改名的 @deepseek-ai/dsh-paths ——
+# 那个包在 registry 上不存在（404），pnpm 一解析就整个安装失败。
+# ⇒ 宿主包永远走链接，`autoInstallPeers` 保持 false；这也是 js-yaml 之外
+# 项目不会有第二个 registry 依赖的原因。
 autoInstallPeers: false
 
 # pnpm 12 默认拦截依赖的构建脚本（供应链安全）；仓库里唯一需要构建的是 esbuild

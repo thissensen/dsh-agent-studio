@@ -46,10 +46,10 @@ interface WebServerService {
 /** `mountApi` 与各端点的取值依赖。 */
 interface ApiDeps {
     getScope: () => SettingsScope | undefined
-    /** 设置服务本体（`presets.js` 清配置分区要用它的 `mutate`）。 */
-    getSettings?: () => unknown
     getSkills?: () => unknown
     getPresets?: () => unknown
+    /** 自建预设的运行时注册表（新建 / 删除端点要用它持有的注销器）。 */
+    getRegistry?: () => unknown
     /** 活 agent 名册（`/skills` 的「活 agent 视角」用它的 `list()`；见 `collectLiveSkills`）。 */
     getAgents?: () => unknown
     getLlm?: () => unknown
@@ -116,10 +116,12 @@ function knownPromptVariables(): string[] | undefined {
  * `serviceFor` 拿不到（该 agent 的预设没挂 skills）时退回全局 skills 服务。
  *
  * **② 预设视角（没有活 agent 时的路由，如冷启动）。** 全走 `agentPresets` 的公开面：
- * `list()` 拿全部预设，逐个 `standingKeyFor(id)` 拿 scope key；`standingKeyFor` 的语义是
- * 「解析**或建立**」（内部 single-flight 的 `ensureStanding`）——官方 session-controller
+ * `list()` 拿全部预设，逐个 `acquireScope(id)` 拿作用域租约；`acquireScope` 的语义是
+ * 「解析**或建立**」（与官方 session-controller 渲染技能目录同路）——官方 session-controller
  * 渲染技能目录走的就是它 ⇒ 顺带把尚未挂载的预设挂上是平台认可的读法（挂失败的会被平台
  * 自行摘掉、之后重试）。破损（`broken`）预筛跳过、每个最多等 800ms。
+ * **租约必须在读完那份作用域之后再释放**（提前释放会让 key 失效），所以释放函数跟着
+ * 读取目标一起走，见下面那个 `finally`。
  *
  * 两个视角**取并集**（按名字去重；单条读失败不影响其它来源）。一条路都走不通时返回
  * undefined（和「确实是空清单」区分开——调用方会继续回退缓存）。
@@ -134,12 +136,12 @@ async function collectLiveSkills(deps: ApiDeps): Promise<SkillRow[] | undefined>
     const delay = (毫秒: number) => new Promise((resolve) => setTimeout(resolve, 毫秒))
     const presets = deps.getPresets?.() as {
         list?: () => Promise<unknown>
-        standingKeyFor?: (id: string) => Promise<unknown>
+        acquireScope?: (id?: string) => Promise<({ key?: unknown } & AsyncDisposable) | undefined>
         serviceFor?: (agent: unknown, name: string) => unknown
     } | undefined
     const agents = deps.getAgents?.() as { list?: () => unknown } | undefined
     /** 待读组：同一个 skills 服务接口、不同的 options（agent 视角带 cwd，预设视角只带 scope）。 */
-    const 读取目标组: Array<{ service: LiveSkillService; options: Record<string, unknown> }> = []
+    const 读取目标组: Array<{ service: LiveSkillService; options: Record<string, unknown>; 释放?: () => Promise<void> }> = []
 
     // ① 活 agent 视角：有没有 agent、读没读到都不影响下面预设视角的兜底。
     const agentList = typeof agents?.list === 'function' ? agents.list() : []
@@ -155,7 +157,7 @@ async function collectLiveSkills(deps: ApiDeps): Promise<SkillRow[] | undefined>
     }
 
     // ② 预设视角。
-    if (typeof presets?.list === 'function' && typeof presets.standingKeyFor === 'function') {
+    if (typeof presets?.list === 'function' && typeof presets.acquireScope === 'function') {
         let list: unknown = []
         try {
             list = await presets.list()
@@ -172,8 +174,18 @@ async function collectLiveSkills(deps: ApiDeps): Promise<SkillRow[] | undefined>
 
             try {
                 // 首次挂载可能慢；给每个最多 800ms，卡住/失败就跳过。
-                const key = await Promise.race([presets.standingKeyFor(row.id), delay(800)])
-                if (key !== undefined) 读取目标组.push({ service: skills, options: { scope: key } })
+                const lease = await Promise.race([presets.acquireScope(row.id), delay(800)]) as
+                    ({ key?: unknown } & AsyncDisposable) | undefined
+                if (lease?.key === undefined) continue
+
+                读取目标组.push({
+                    service: skills,
+                    options: { scope: lease.key },
+                    释放: async () => {
+                        const release = lease[Symbol.asyncDispose]
+                        if (typeof release === 'function') await release.call(lease)
+                    },
+                })
 
             } catch {
                 // 挂载失败的预设跳过，不影响其它预设的读取。
@@ -202,6 +214,10 @@ async function collectLiveSkills(deps: ApiDeps): Promise<SkillRow[] | undefined>
 
         } catch {
             // 单个来源读失败不影响其它来源。
+
+        } finally {
+            // 作用域租约读完即还：租约活着，那份 revision 就不回收。
+            await 目标.释放?.()
         }
     }
 
