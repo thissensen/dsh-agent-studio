@@ -46,7 +46,7 @@ dsh plugin --profile web add dsh-agent-studio
 到 [Releases](https://github.com/thissensen/dsh-agent-studio/releases) 下载 `dsh-agent-studio-<版本>.tgz`，它就是 npm 上那份包，`lib/` 与 `client/` 的构建产物都在里面，不用自己构建：
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.4.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.1.5.tgz"
 ```
 
 包放在哪个目录都行，把路径写对即可（`./` 开头或绝对路径），文件名里的版本号换成你实际下载的那个。**离线、内网环境走这条。**

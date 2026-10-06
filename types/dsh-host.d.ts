@@ -84,17 +84,8 @@ declare module '@deepseek-ai/dsh-tools' {
 }
 
 declare module '@deepseek-ai/dsh-agent-preset-registry' {
-    /** 一份「已挂载的预设」。 */
-    export interface PresetMount {
-        presetId: string
-        [key: string]: unknown
-    }
-
-    /** 某个 scope 上「常驻」的预设挂载（agentCtx → 它挂的预设）。 */
-    export function standingMountFor(agentCtx: unknown): PresetMount | undefined
-
-    /** 当前所有活着的预设挂载。 */
-    export function livePresetMounts(within?: unknown): PresetMount[]
+    /** 校验一份已解析的构成声明，返回第一条问题的说明（英文文案）；合法时 undefined。 */
+    export function entryListProblem(rows: unknown, at?: string): string | undefined
 }
 
 declare module '@deepseek-ai/dsh-util-values' {

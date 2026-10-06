@@ -9,49 +9,47 @@
  *  - 连预设自己打的日志都不可信：实验台是从另一个预设复制来的，
  *    它的 guard 里硬编码着原来的预设名，日志里照旧打那个名字。
  *
- * 所以取法只有一个：`composedPreset` 读 live scope chain。观察层与生效层都用它，
+ * 所以取法只有一个：读 `agentPresets` 服务沿 scope 链定位该 agent 加入的预设修订。
+ * 主路 `composedPreset` 直出 id，同源的 `inspectCompositions` 作兜底；观察层与生效层都走这里，
  * 免得两处各自实现、各自取错。
  *
  * @module dsh-agent-studio/preset
  */
 
-import { livePresetMounts, standingMountFor } from '@deepseek-ai/dsh-agent-preset-registry'
 import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
 import type { Ctx } from './types.js'
 
-/** `agentPresets` 服务的形状（只取 `composedPreset`）。 */
+/** `agentPresets` 服务的形状（只取本项目用到的两个方法）。 */
 interface AgentPresetsService {
     composedPreset?(scope: unknown): string | undefined
+    inspectCompositions?(ctx?: unknown): Array<{ id: string }>
 }
-
-/**
- * 宿主 context 的类型。
- *
- * 本插件不依赖 `@deepseek-ai/cordis` 的类型包，而模块导出的 `standingMountFor`
- * 要的是 cordis 的 `Context` ⇒ 用它的签名反推，既拿到准确类型又不新增依赖。
- * 调用方传进来的本来就是 `agent.ctx`，断言成立。
- */
-type HostContext = Parameters<typeof standingMountFor>[0]
 
 /**
  * 取当前 agent 真正跑在哪个预设上。
  *
- * 两条路都试：服务实例上的 `composedPreset` 是公开 API，模块导出的
- * `standingMountFor` 是它的实现本体。服务那条路返回空时走模块那条——
- * 后者要求插件与宿主解析到**同一个模块实例**（`link:` 装法下由 Node 的
- * 真实路径解析保证，见 docs/environment-notes.md）。
+ * ① 两条路**同源**：平台侧 `composedPreset(ctx)` 与 `inspectCompositions(ctx)` 内部走的是
+ * 同一个查找（沿 scope 链定位该 agent 加入的预设修订），后者只是顺带把该修订的模块引用与
+ * 「泄漏服务」一并算出来。留第二个入口不是为了多一份数据，而是不把取数押在单个方法名上。
+ *
+ * ② 兜底**只在主路取不到时才调用**：`inspectCompositions` 要算模块引用与「泄漏服务」，
+ * 比一次查找重，所以不能把它提成无条件调用。
+ *
+ * ③ 服务缺席时两个入口都没有 ⇒ 返回 undefined，即退化为「不干预」
+ * （观察层记空、生效层跳过）。
  *
  * @param ctx - 插件所在的 context。
  * @param agentCtx - 该 agent 的 scope context，即 `agent.ctx`。
- * @returns 预设 id（目录名）；两条路都取不到时返回 undefined。
+ * @returns 预设 id（目录名）；两个入口都取不到时返回 undefined。
  */
 export function resolvePresetId(ctx: Ctx, agentCtx: unknown): string | undefined {
     if (agentCtx === undefined) return undefined
 
-    const fromService = (ctx.get?.('agentPresets') as AgentPresetsService | undefined)?.composedPreset?.(agentCtx)
+    const service = ctx.get?.('agentPresets') as AgentPresetsService | undefined
+    const fromService = service?.composedPreset?.(agentCtx)
     if (fromService !== undefined) return fromService
 
-    return standingMountFor(agentCtx as HostContext)?.presetId
+    return service?.inspectCompositions?.(agentCtx)?.[0]?.id
 }
 
 /**
@@ -63,17 +61,16 @@ export function resolvePresetId(ctx: Ctx, agentCtx: unknown): string | undefined
  */
 export function describePresetResolution(ctx: Ctx, agentCtx: unknown): string[] {
     const service = ctx.get?.('agentPresets') as AgentPresetsService | undefined
-    const scopeKey = agentCtx === undefined ? undefined : scopeOf(agentCtx as HostContext)
+    const scopeKey = agentCtx === undefined ? undefined : scopeOf(agentCtx)
     const standingKey = scopeKey === undefined ? undefined : scopeParentOf(scopeKey)
 
     let scopeState = '未绑定'
     if (standingKey !== undefined) scopeState = '已绑预设'
     else if (scopeKey !== undefined) scopeState = '无父节点'
 
-    // 不传 `within`：这个函数只用于排障输出，而「进程里挂了哪些预设」正是要看的东西。
-    // （`within` 是给「一个进程里跑多个 runtime」的读者用的——那种场景下才需要传自己的
-    // root fiber 把别人的挂载排除掉；本插件的排障输出不需要这层过滤。）
-    const mounted = livePresetMounts().map((mount) => mount.presetId)
+    // 不传参 = 列全部保留修订；传 agent ctx 只会回该 agent 那一条，而这份排障输出要看的
+    // 正是「进程里保留了哪些」。
+    const mounted = service?.inspectCompositions?.().map((c) => c.id) ?? []
 
     return [
         `agent.ctx=${agentCtx === undefined ? '无' : '有'}`,

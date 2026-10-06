@@ -23,3 +23,6 @@ docs/.vitepress/cache
 /vitest.setup.ts
 
 # 注：内部工作区（工作笔记、真机脚本与证据）放在仓库之外，不属于本仓库
+
+# 临时探测脚本与日志产物（一次性、不进版本库）
+/artifacts/
