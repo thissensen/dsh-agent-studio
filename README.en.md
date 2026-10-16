@@ -179,7 +179,7 @@ agent-studio:
   promptSets:    # prompt sets: ordered sections; with text = custom, without = references a platform preset
   toolSets:      # tool sets: tool names
   skillSets:     # skill sets: skill names
-  runtimeContextOff: [reviewer]       # these agents stop receiving the official runtime snapshot
+  runtimeContextOff: [reviewer]       # these agents drop the optional part of the runtime snapshot; required items still ship
   bindings:
     presets: [{ presetId: standard, agentId: reviewer }]   # preset → main agent
 ```
@@ -199,6 +199,7 @@ agent-studio:
 - **Delegation uses the plugin's own tools**: `studio_list_subagents` computes the roster live, `studio_delegate` dispatches by agent id — **only through it do a subagent's own settings (prompt / tools / skills / model) resolve to its identity and take effect**. The official `subagent` tool gets no special treatment (it is there if your tool sets keep it), but the subagents it starts are never registered, so they only ever run with the surface of the main agent bound to that preset.
 - **Identity stays exact even when several subagents are dispatched at once.** Every dispatch pre-generates the child session id *before* the call — both the wait-for-result mode and the background mode are continuable child sessions — so the session-to-agent mapping is written before the child is created. The platform's `agent/created` event does not say which dispatch triggered the creation, so queue-order pairing survives only as a fallback.
 - **Tool candidates have a cold start.** With no session around, those tool registrations do not exist in the host process and cannot be queried from anywhere. So observations are cached per preset, and the panel falls back to that cache.
+- **Automatic fallback only takes over when fallbacks are configured.** With no fallbacks configured the plugin never touches the request and retries behave exactly as the platform default; after takeover the retry bound comes from the plugin's config (counted per candidate).
 
 ## Layout
 

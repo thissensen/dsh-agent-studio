@@ -178,7 +178,7 @@ agent-studio:
   promptSets:    # 提示词集：有序段清单；带 text = 自定义，不带 = 引用平台预设
   toolSets:      # 工具集：工具名清单
   skillSets:     # 技能集：skill 名清单
-  runtimeContextOff: [reviewer]       # 名单里的代理不再收到官方的 runtime 快照
+  runtimeContextOff: [reviewer]       # 名单里的代理：关掉快照的「可选」部分，平台必需的项仍照投
   bindings:
     presets: [{ presetId: standard, agentId: reviewer }]   # 预设 → 主代理
 ```
