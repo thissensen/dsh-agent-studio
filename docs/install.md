@@ -3,7 +3,7 @@
 ## 环境要求
 
 - **DSH（DeepSeek Harness）**：纯 Web 版（`dsh --profile web`）与桌面版都支持。桌面版就是 Web 版加一层 Electron 壳，两边共用同一套 host 逻辑。
-- **版本**：需要 **DSH 0.1.7 及以上**（本插件在 `peerDependencies` 里要求平台包 `>=0.1.7-rc.1`）。预设在这一版从「目录里的文件」改成了「插件声明的列表」，本插件依赖随之新增的 `@deepseek-ai/dsh-agent-preset-registry`；装在更早的版本上会因为缺这个包而无法启动——插件市场会据此拦住这次更新。
+- **版本**：需要 **DSH `0.1.7-rc.1` 及以上**（本插件在 `peerDependencies` 里要求平台包 `>=0.1.7-rc.1`）。预设在这一版从「目录里的文件」改成了「插件声明的列表」，本插件依赖随之新增的 `@deepseek-ai/dsh-agent-preset-registry`；装在更早的版本上会因为缺这个包而无法启动——插件市场会据此拦住这次更新。
 - 本插件不挑操作系统，Windows / macOS / Linux 都能用。
 
 ## 三条安装路线
