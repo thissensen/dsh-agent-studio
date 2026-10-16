@@ -24,7 +24,7 @@ It pairs well with [dsh-context](https://github.com/bowenliang123/dsh-context), 
 | The system prompt grows and grows, and you can neither turn it off nor use it | Whatever sections the preset registers gets delivered | Write a whitelist per agent; anything not on it stays out |
 | Too many tools, and the model can't pick well | The full tool surface of everything installed | Pick the ones this agent needs, put the rest away |
 | Many skills, no good way to manage them | Every `modelInvocable` skill enters the catalog | Check the ones you want; the model can't see the rest |
-| A runtime snapshot is pushed into every step | Injected by the platform, with no switch | A per-agent switch — turn it off and stop paying for it |
+| A runtime snapshot is pushed into every step | Injected by the platform, with no switch | A per-agent switch — turn the optional part off and stop paying for it |
 | Subagents can only inherit the parent wholesale, eating a lot of context | The official `subagent` has no entry identity and no per-role trimming | Configure each subagent on its own: model / prompt / tools / skills / background mode |
 | Subagents created under PTC are PTC too | The platform inherits the parent's mode | You decide whether a subagent runs native or PTC |
 | Different jobs want different prompts, tools and skills, and switching is a chore | A preset only swaps the prompt; tools and skills stay one global set | Switch the agent bound to that preset, and you're done |
@@ -47,7 +47,7 @@ dsh plugin --profile web add dsh-agent-studio
 Download `dsh-agent-studio-<version>.tgz` from [Releases](https://github.com/thissensen/dsh-agent-studio/releases). It is the very artifact npm serves, with the `lib/` and `client/` build output already inside — no build step:
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.5.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.1.6.tgz"
 ```
 
 The file can live in any directory as long as the path is right (`./` or an absolute path); swap in whatever version you actually downloaded. **Use this route for offline or air-gapped setups.**
@@ -150,7 +150,7 @@ Configure a chain of **fallback models** for an agent, and a failure of the prim
    - **Custom**: your own body, supporting the platform's registered `{{variable}}` interpolation. Writing a variable the platform has not registered fails that request outright.
 3. **Create a tool set** and check the tools you want to keep. `skill` is required — without it the model cannot invoke skills on its own.
 4. **Create a skill set** and check the skills to expose. Candidates are grouped by source, collapsible, and whole groups can be checked at once — opening the panel queries the official skill service right away, no message needed first.
-5. **Create an agent**: name it and write its note (when it acts as a subagent, the model picks by that note), load the sets above, pick its Agent mode (follow preset / native / force PTC) and background mode (resumable / one-shot / AI decides). The subagent roster lives here too. Configure a chain of **fallback models** too if you want (see the section above; optional).
+5. **Create an agent**: name it and write its note (when it acts as a subagent, the model picks by that note), load the sets above, pick its Agent mode (follow preset / native / force PTC) and background mode (non-blocking / blocking / AI decides). The subagent roster lives here too. Configure a chain of **fallback models** too if you want (see the section above; optional).
 6. **Bind** that agent to a platform preset.
 7. **Save.** Nothing is written until you press save — **don't forget it**.
 
@@ -197,7 +197,7 @@ agent-studio:
 
 - **Sections cannot be rewritten under minimal-style presets.** Their persona section carries `complete: true`, meaning "this is the whole prompt, stop splicing". After the assembly waterfall returns, the platform forces the section list back to that one section, so whatever whitelist the plugin computed inside the waterfall is overwritten — that single section is always what ships. That is platform design, not a plugin defect, and since only one section was ever in play the practical loss is small. The tool and skill surfaces have no such post-processing, and `standard` / `code` / `cordis` and other regular presets behave normally.
 - **Delegation uses the plugin's own tools**: `studio_list_subagents` computes the roster live, `studio_delegate` dispatches by agent id — **only through it do a subagent's own settings (prompt / tools / skills / model) resolve to its identity and take effect**. The official `subagent` tool gets no special treatment (it is there if your tool sets keep it), but the subagents it starts are never registered, so they only ever run with the surface of the main agent bound to that preset.
-- **When several one-shot subagents are dispatched at once, identity is paired in order.** The platform's `agent/created` event does not say which dispatch triggered the creation, so the plugin can only assume queue order: first created pairs with first called. That held in testing, but the platform never promised it. Resumable subagents are unaffected — they get a pre-generated `childId` before starting, so the pairing is exact.
+- **Identity stays exact even when several subagents are dispatched at once.** Every dispatch pre-generates the child session id *before* the call — both the wait-for-result mode and the background mode are continuable child sessions — so the session-to-agent mapping is written before the child is created. The platform's `agent/created` event does not say which dispatch triggered the creation, so queue-order pairing survives only as a fallback.
 - **Tool candidates have a cold start.** With no session around, those tool registrations do not exist in the host process and cannot be queried from anywhere. So observations are cached per preset, and the panel falls back to that cache.
 
 ## Layout

@@ -34,7 +34,7 @@ DSH 每轮给模型的**系统提示词不是一个整块**，而是**按段拼�
 | `harness:identity` | `dsh-system-prompt` | 「你是由 DeepSeek Harness 驱动的 AI agent」——身份声明 |
 | `deployment:persona-prefix` | `dsh-system-prompt` | 人设前缀（正文带 <code v-pre>{{model}}</code> 插值）；子代理通道也能覆盖这一段 |
 | `deployment:persona-suffix` | `dsh-system-prompt` | 人设收尾（工作目录 <code v-pre>{{cwd}}</code> 等） |
-| `harness:source` | `dsh-app-boot` | 宿主实现检出的位置——把「平台源码在哪」告诉模型 |
+| `harness:source` | `@deepseek-ai/dsh-harness-dev-context` | 宿主实现检出的位置——把「平台源码在哪」告诉模型 |
 | `app:web-surface` | `dsh-web-app` | 「你在 Web GUI 里和用户交互」+ 当前地址 |
 
 - 这五段是**唯一一组跟工具无关的**：任何预设下默认都在。

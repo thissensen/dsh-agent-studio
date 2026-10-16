@@ -48,7 +48,7 @@ DSH 官方提供的工具包（`dsh-tool-*`、实验组 `dsh-experimental-*` 与
 | `ralph` | `dsh-tool-ralph` | 围绕不可变目标的前台全新 agent 迭代（出厂关闭） |
 | `spawn_teammate` `team_task_create` `team_task_get` `team_task_list` `team_task_update` `wait_agent` `interrupt_agent` `list_agents` `send_message` | `dsh-experimental-tool-agent-team`（实验） | 具名 teammate + 共享任务板 + 持久消息的团队协作（九个工具） |
 
-- `subagent` 有两种模式：`one-shot` 默认等结果；`continuable` 默认在后台启动并返回 id，供后续追问。
+- `subagent` 只有一种启动语义：每次委派都**立即返回子代理 id**，结果由运行时投递给父模型，不阻塞当前轮次；能不能中途引导或事后追问，取决于后端能力（能续接的用 `send_message`，不能的只在完成通知里给最终答复）。
 - `workflow` 用在**用户明确要求工作流或大型多 agent 编排**时；父轮次会等所有委派结束，取消或异常返回错误，而不是部分成功。
 - 三者的分工：普通长期工作用 `goal`，有界委派用 `subagent` 或 `workflow`，Ralph 式迭代只在用户明确要求时用。
 - 本插件提供替代路径：`studio_list_subagents` 列出该 agent 名下的子代理，`studio_delegate` 按代理 id 派活——**只有走它，子代理那套独立配置（提示词 / 工具 / 技能 / 模型）才认得出身份、才生效**。官方 `subagent` 没有特殊待遇（工具集里留着它就在），但它派出的子代理没有角色登记，只能按该预设绑定的主代理那套面走。

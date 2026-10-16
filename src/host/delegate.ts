@@ -19,18 +19,19 @@
  * ## 身份登记（认领）
  *
  * 「子代理会话 → 代理」的映射要**早于子代理的第一次装配**建好，否则装配期的段拼接
- * 查不到身份、退回默认面（2026-09-16 实测的「配了没用」根因：那次登记在 `run` 返回时，
- * 而 one-shot 的 `run` 要等整个 turn 跑完才返回）。
+ * 查不到身份、退回默认面（2026-09-16 实测的「配了没用」根因：那次登记发生在派活调用返回
+ * 之后，而前台派活要等整个 turn 跑完才返回）。
  *
  * 三条登记路径，从早到晚：
  *
- *  1. **预生成会话 id**（可续子代理）：`startContinuable` 接受调用方指定的 `childId`，
- *     所以映射在 `start()` **调用前**就写好了——零竞态。
- *  2. **创建窗口认领**（one-shot，以及上一条没兑现时）：入队在 `start()` 调用**前**同步
- *     完成，`agent/created` 必然早于第一次装配（创建 → 挂 composition → 提交首个 prompt），
- *     在那里按父会话配对。同父并发派活时用队列顺序（FIFO）配对。
+ *  1. **预生成会话 id**（两档都走）：`startActivation` 接受调用方指定的 `childId`（只有
+ *     local 后端采纳，派活前用 `prepareContinuable` 守卫把不支持的传输层挡下），所以映射
+ *     在派活**调用前**就写好了——零竞态。**前台档现在也走这条路**（旧的 `start()` 拿不到
+ *     预生成的 id）。
+ *  2. **创建窗口认领**（上一条没兑现时）：入队在派活调用**前**同步完成，`agent/created`
+ *     必然早于第一次装配（创建 → 挂 composition → 提交首个 prompt），在那里按父会话配对。
+ *     同父并发派活时用队列顺序（FIFO）配对。
  *  3. **装配期兜底认领**：装配时若映射仍缺失，按父会话从队列再认一次（见 `apply.js`）。
- *     `run` 返回后的直接登记只是最后一道保险，对第一次装配已经来不及。
  *
  * @module dsh-agent-studio/delegate
  */
@@ -52,34 +53,50 @@ interface Claim {
     agentId: string
 }
 
-/** 交给 `ctx.subagents.start()` 的请求对象（只含启动时能定的字段）。 */
-interface StartRequest {
-    label: string | undefined
-    prompt: unknown[]
-    parent: unknown
-    signal: unknown
-    agentOptions?: {
-        provider: string
-        model: string
-        reasoningEffort?: string
+/** 交给 `ctx.subagents.startActivation()` 的规格（`label` 与 `signal` 在顶层，不在 `request` 里）。 */
+interface ActivationSpec {
+    provider: string
+    label: string
+    childId: string
+    request: {
+        prompt: unknown[]
+        parent: unknown
+        agentOptions?: {
+            provider: string
+            model: string
+            reasoningEffort?: string
+        }
     }
+    signal: AbortSignal
+    /** `parent` = 平台回头把结果通知给父模型（后台档）；`caller` = 只把结果还给这次调用（前台档）。 */
+    delivery: 'parent' | 'caller'
 }
 
-/** 宿主 `subagents` 服务（派活层只用 `start` / `startContinuable` / `getProvider`）。 */
+/**
+ * 宿主 `subagents` 服务（派活层只用 `startActivation` / `getProvider`）。
+ *
+ * alpha.5 起 `start` 与 `startContinuable` 双双删除，只剩这一个入口：子代理可不可续接由
+ * **传输层的能力**决定，不再是请求侧的开关。
+ */
 interface SubagentsService {
-    start(provider: string, request: StartRequest): Promise<SubagentRun>
-    startContinuable(options: { provider: string; label: string | undefined; request: StartRequest; signal: unknown; childId: string }): Promise<{ childId: string }>
-    getProvider?(provider: string): unknown
+    startActivation(spec: ActivationSpec): Promise<SubagentActivation>
+    getProvider?(provider: string): SubagentProvider | undefined
 }
 
-/** `subagents.start` 返回的「运行」句柄。 */
-interface SubagentRun {
-    id: string
+/** 官方子代理传输层的最小形状：有 `prepareContinuable` 才起得了带预生成 `childId` 的 local 子代理。 */
+interface SubagentProvider {
+    prepareContinuable?: unknown
+}
+
+/** `startActivation` 返回的「一次执行」：子代理身份 + 结果 + 释放句柄（取代旧的 `SubagentRun`）。 */
+interface SubagentActivation {
+    childId: string
+    messageId?: string
     result: Promise<SubagentResult>
     dispose(): Promise<void>
 }
 
-/** `run.result` 结算结果。 */
+/** `activation.result` 结算结果。 */
 interface SubagentResult {
     stopReason?: string
     diagnostic?: string
@@ -94,7 +111,7 @@ interface SubagentResult {
  */
 type DelegateResult =
     | { kind: 'continuable'; subagentId: string }
-    | { kind: 'foreground'; runId: string; output?: JsonValue[] }
+    | { kind: 'foreground'; subagentId: string; output?: JsonValue[] }
 
 /** 模型侧 agent 的最小形状（只取本插件用到的 `session` / `ctx`）。 */
 interface ModelAgent {
@@ -273,38 +290,41 @@ function describeSubagent(agentConfig: AgentConfig): string {
 }
 
 /**
- * 把代理配置翻译成官方启动参数。
+ * 把代理配置翻译成官方启动规格。
  *
  * 只翻译**启动时能定下来的**那些：模型路由在这里定；提示词面留给装配期；工具面在
  * 创建窗口挂（`agent/created`，见 `apply.js`）——那两样要改的是子代理的段与视图，
- * 不是启动参数。
+ * 不是启动参数。`childId` / `delivery` / `request.prompt` 留给调用点补：它们的取值
+ * 取决于这一档后台模式。
  *
  * @param agentConfig - 子代理的配置。
  * @param label - 给这次的显示名。
  * @param parent - 派活的父 agent。
  * @param signal - 取消信号。
- * @returns 可直接交给 `ctx.subagents.start()` 的请求对象。
+ * @returns 可直接交给 `ctx.subagents.startActivation()` 的规格骨架。
  */
-function startRequestFor(agentConfig: AgentConfig | undefined, label: string | undefined, parent: unknown, signal: unknown): StartRequest {
+function activationSpecFor(agentConfig: AgentConfig | undefined, label: string, parent: unknown, signal: AbortSignal): ActivationSpec {
     const model = agentConfig?.model ?? {}
-    const request: StartRequest = {
+    const spec: ActivationSpec = {
+        provider: SPAWN_PROVIDER,
         label,
-        prompt: [],
-        parent,
+        childId: '',
+        request: { prompt: [], parent },
         signal,
+        delivery: 'caller',
     }
 
     // provider 与 model 必须成对给：只配一半是配置错误，让平台的校验把它报出来，
     // 不在这里猜另一半（猜错等于悄悄用了别的模型）。
     if (model.provider !== undefined && model.model !== undefined) {
-        request.agentOptions = {
+        spec.request.agentOptions = {
             provider: model.provider,
             model: model.model,
             ...model.reasoningEffort === undefined ? {} : { reasoningEffort: model.reasoningEffort },
         }
     }
 
-    return request
+    return spec
 }
 
 /**
@@ -363,8 +383,10 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
         description: 'Hand a self-contained task to one of this agent\'s named subagents.'
             + ' Call `studio_list_subagents` first and pass one of its ids as `agent`.'
             + ' The subagent runs with that agent\'s prompt surface, tool surface and model.'
-            + ' When it runs in the background this returns a subagentId: wait for its settlement notice, or'
-            + ' steer it with `send_message` — do NOT pass a subagentId to `job_output`, they are different id spaces.',
+            + ' Every subagent is a resumable child session, so the returned subagentId is always that session id:'
+            + ' in the background, wait for its settlement notice or steer it with `send_message`;'
+            + ' a foreground delegation hands back the same kind of id when it finishes.'
+            + ' Do NOT pass a subagentId to `job_output` — session ids and job ids are different id spaces.',
         parameters: {
             agent: {
                 type: 'string',
@@ -400,7 +422,7 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
                     additionalProperties: false,
                     properties: {
                         kind: { type: 'string', required: true, const: 'foreground' },
-                        runId: { type: 'string', required: true },
+                        subagentId: { type: 'string', required: true },
                         output: { type: 'array', items: { type: 'json' } },
                     },
                 },
@@ -428,78 +450,63 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
             }
 
             const subagents = ctx.get?.('subagents') as SubagentsService | undefined
-            if (subagents?.start === undefined) throw Error('子代理服务未就绪，暂时不能派活。')
-            if (subagents.getProvider?.(SPAWN_PROVIDER) === undefined) {
-                throw Error(`子代理传输层「${SPAWN_PROVIDER}」没有注册，派活无处可去。`)
+            if (subagents?.startActivation === undefined) throw Error('子代理服务未就绪，暂时不能派活。')
+
+            // 预生成的会话 id 只有 local 后端认：没有 prepareContinuable 的传输层会直接抛
+            // UNSUPPORTED_CAPABILITY ⇒ 在派活前挡下，给人话。
+            if (subagents.getProvider?.(SPAWN_PROVIDER)?.prepareContinuable === undefined) {
+                throw Error(`子代理传输层「${SPAWN_PROVIDER}」没注册或不支持可续接子代理，派活无处可去。`)
             }
 
-            const label = typeof a.description === 'string' && a.description !== ''
-                ? a.description
-                : targetConfig.name !== '' ? targetConfig.name : targetId
-            const request = startRequestFor(targetConfig, label, callAgent, (exec as StudioToolExec).signal)
-            request.prompt = [{ type: 'text', text: String(a.prompt ?? '') }]
+            const agentName = typeof targetConfig.name === 'string' && targetConfig.name !== '' ? targetConfig.name : targetId
+            const label = typeof a.description === 'string' && a.description !== '' ? a.description : agentName
+            const spec = activationSpecFor(targetConfig, label, callAgent, (exec as StudioToolExec).signal as AbortSignal)
+            spec.request.prompt = [{ type: 'text', text: String(a.prompt ?? '') }]
 
             // 「始终后台」不看模型的开关；「交给 AI 决定」才看；「前台等待」一律当场等结果
             const backgroundMode = targetConfig.background ?? 'model-decides'
             const runInBackground = backgroundMode === 'always-background'
                 || (backgroundMode === 'model-decides' && a.run_in_background === true)
 
+            // 后台档要平台把结算通知投给父模型，前台档只要结果还给这次调用
+            spec.delivery = runInBackground ? 'parent' : 'caller'
+
+            // 预生成会话 id ⇒ 映射在创建**之前**就写好，零竞态。队列项是保险（万一这次没兑现）：
+            // 派活返回后清掉。
             const sessionId = callAgent.session?.id as string
+            const agentId = targetConfig.id as string
+            const childId = randomUUID()
+            spec.childId = childId
+            const claim = enqueueClaim(sessionId, agentId)
+            noteChildAgent(childId, agentId)
 
-            if (runInBackground) {
-                // 可续子代理支持调用方指定会话 id ⇒ 映射在创建**之前**就写好，零竞态。
-                // 队列项是保险（万一这个版本没采纳指定的 id）：返回后清掉。
-                const childId = randomUUID()
-                const claim = enqueueClaim(sessionId, targetConfig.id as string)
-                noteChildAgent(childId, targetConfig.id as string)
-
-                try {
-                    const started = await subagents.startContinuable({
-                        provider: SPAWN_PROVIDER,
-                        label,
-                        request,
-                        signal: (exec as StudioToolExec).signal,
-                        childId,
-                    })
-                    dropClaim(claim)
-
-                    return { kind: 'continuable', subagentId: started.childId }
-
-                } catch (err) {
-                    dropClaim(claim)
-                    throw err
-                }
-            }
-
-            const claim = enqueueClaim(sessionId, targetConfig.id as string)
-
-            let run: SubagentRun
+            let activation: SubagentActivation
             try {
-                run = await subagents.start(SPAWN_PROVIDER, request)
+                activation = await subagents.startActivation(spec)
 
             } catch (err) {
                 dropClaim(claim)
                 throw err
             }
 
-            // 创建窗口的认领本应已经发生；这里再记一次是最后保险（对第一次装配来不及，
-            // 对第二次起有效），顺带清掉可能还没被取走的队列项。
-            noteChildAgent(run.id, targetConfig.id as string)
             dropClaim(claim)
 
+            if (runInBackground) return { kind: 'continuable', subagentId: activation.childId }
+
             try {
-                const result = await run.result
+                const result = await activation.result
                 if (result.stopReason !== 'completed') {
                     const detail = result.diagnostic === undefined ? '' : `（${result.diagnostic}）`
                     throw Error(`子代理没有正常结束：${result.stopReason}${detail}`)
                 }
 
-                return { kind: 'foreground', runId: run.id, output: result.output }
+                return { kind: 'foreground', subagentId: activation.childId, output: result.output }
 
             } finally {
-                // 无论结果如何都要释放这次运行。释放本身极罕见地抛错时它会盖掉上面的异常，
-                // 这个取舍是有意的：泄漏一次运行比报错串味更糟。
-                await run.dispose()
+                // 释放这一次激活。子代理自然结算时平台已经自己关掉它（幂等），这里兜的是「结果
+                // 已到、收尾还没走完」与异常路径——激活常驻会占住 maxActiveSubagents 的名额
+                // （默认 8）。释放本身极罕见地抛错时它会盖掉上面的异常，这个取舍是有意的。
+                await activation.dispose()
             }
         },
     }))

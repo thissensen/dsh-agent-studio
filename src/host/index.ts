@@ -64,7 +64,11 @@ export function apply(ctx: Ctx, config: unknown) {
         { getConfig: () => (settingsScope === null ? undefined : settingsScope.get() as StudioConfig), logger },
     )
 
-    ctx.inject(['webServer', 'webRuntime'], (webCtx: Ctx) => {
+    // 只声明 `webServer`：0.2.1-alpha.5 把 `webRuntime` 服务整个删了（信任主机清单搬到了
+    // `webStartup` 上），写进 deps 会让这条回调**永不满足**——五条路由一条都不注册，
+    // 面板退化成兜底卡（2026-10-17 真机：`/api/dsh-agent-studio/*` 全 404）。
+    // 信任清单改由 `api.js` 用 `ctx.get()` 取值式取，不参与注入：缺谁都不影响挂载。
+    ctx.inject(['webServer'], (webCtx: Ctx) => {
         mountApi(webCtx, logger, {
             getScope: () => settingsScope ?? undefined,
             getPresets: () => ctx.get?.('agentPresets'),

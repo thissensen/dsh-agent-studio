@@ -45,7 +45,7 @@ const LOCAL_SCOPE_DIR = join(PROJECT_ROOT, 'node_modules', '@deepseek-ai')
  */
 function resolveHostScopeDir() {
     // 适配期显式覆盖：直接指向某个 dsh 安装目录的 node_modules（例：
-    // D:/Program Files/dsh/node_modules）。用途是把「项目开发用的宿主包来源」
+    // <DSH 安装目录>/node_modules）。用途是把「项目开发用的宿主包来源」
     // 与「profile 运行时的 link 层」解耦——平台升版时可以先只切开发侧，
     // 不动正在跑的 GUI 所依赖的那一层。
     const explicit = process.env.DSH_HOST_DIR

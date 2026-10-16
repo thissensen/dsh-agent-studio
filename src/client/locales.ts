@@ -70,9 +70,9 @@ export const zh = {
     'defaultName.sections': '未命名段',
 
     // ── 三档枚举 ──────────────────────────────────────────────────────────
-    'background.always': '可续接',
-    'background.foreground': '一次性',
-    'background.modelDecides': 'AI 自行决定',
+    'background.always': '不阻塞',
+    'background.foreground': '阻塞',
+    'background.modelDecides': 'AI 决定',
     'presentation.follow': '跟随预设',
     'presentation.native': '原生',
     'presentation.ptc': '强制 PTC',
@@ -273,7 +273,8 @@ export const zh = {
     'agent.snapshotFixed': '该预设已固定关闭运行时快照',
     'agent.snapshotHelp': [
         '每个回合开始时，平台以一条 user 消息注入当前运行时状态（含沙箱与审批、工作目录、各插件上报的动态提示）。',
-        '取消勾选 = 这个代理不再收到它（系统提示词与工具面不受影响）。',
+        '取消勾选 = 只停掉其中的「可选」部分（沙箱与审批政策、工具错误统计、插件上报的动态提示）；平台标为必需的项——如当前工作目录——仍会照投。',
+        '系统提示词与工具面不受这个开关影响。',
     ].join('\n'),
     'agent.toolSets': '工具集',
     'agent.toolSetsHint': '给 Agent 配备的工具',
@@ -288,9 +289,9 @@ export const zh = {
     'agent.modelCard': '模型与后台模式',
     'agent.background': '后台模式',
     'agent.backgroundHint': [
-        '「可续接」：后台跑不阻塞，主代理可用 send_message 追问',
-        '「一次性」：阻塞主代理，直到子代理跑完，后续无法追问',
-        '「AI 自行决定」：模型自己选「可续接」/「一次性」',
+        '「不阻塞」：后台跑，主代理不等它，可用 send_message 追问',
+        '「阻塞」：主代理等子代理跑完再继续；两档的子代理都是可续接子会话',
+        '「AI 决定」：模型自己选「不阻塞」/「阻塞」',
     ].join('\n'),
     'agent.children': '子代理',
     'agent.childrenHint': '给当前代理分配的子代理',
@@ -395,8 +396,8 @@ export const en: Record<CopyKey, string> = {
     'defaultName.sections': 'Untitled section',
 
     // ── Two enum rows ─────────────────────────────────────────────────────
-    'background.always': 'Resumable',
-    'background.foreground': 'One-shot',
+    'background.always': 'Non-blocking',
+    'background.foreground': 'Blocking',
     'background.modelDecides': 'AI decides',
     'presentation.follow': 'Follow preset',
     'presentation.native': 'Native',
@@ -593,7 +594,8 @@ export const en: Record<CopyKey, string> = {
     'agent.snapshotFixed': 'This preset fixes the runtime snapshot off',
     'agent.snapshotHelp': [
         'At the start of every turn the platform injects the current runtime state as a user message (sandbox and approvals, working directory, dynamic notes reported by plugins).',
-        'Unchecking means this agent no longer receives it (the system prompt and tool surface are unaffected).',
+        'Unchecking stops only the optional part (sandbox and approval policy, tool error stats, plugin-reported notes); items the platform marks as required — such as the current working directory — are still delivered.',
+        'The system prompt and the tool surface are unaffected by this switch.',
     ].join('\n'),
     'agent.toolSets': 'Tool sets',
     'agent.toolSetsHint': 'Tools equipped for the agent',
@@ -608,9 +610,9 @@ export const en: Record<CopyKey, string> = {
     'agent.modelCard': 'Model and background mode',
     'agent.background': 'Background mode',
     'agent.backgroundHint': [
-        '"Resumable": runs in the background without blocking; the main agent can follow up with send_message',
-        '"One-shot": blocks the main agent until the subagent finishes; no follow-up afterwards',
-        '"AI decides": the model picks "Resumable" or "One-shot" itself',
+        '"Non-blocking": runs in the background; the main agent does not wait and can follow up with send_message',
+        '"Blocking": the main agent waits for the subagent to finish before continuing; both modes are continuable child sessions',
+        '"AI decides": the model picks "Non-blocking" or "Blocking" itself',
     ].join('\n'),
     'agent.children': 'Subagents',
     'agent.childrenHint': 'The subagents assigned to this agent',

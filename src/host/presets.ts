@@ -36,6 +36,8 @@ interface PresetDeps {
     /** 自建预设的注册表；服务未就绪时可能是 undefined（端点据此回 503）。 */
     getRegistry?(): PresetRegistry | undefined
     trustedHosts: unknown[]
+    /** 监听器自己的绑定地址（`ctx.webServer.host`，取值式）；取不到即 undefined ⇒ 写围栏不放宽。 */
+    bindHost?: string
 }
 
 /** `agentPresets` 服务的形状（只取本项目用到的成员）。 */
@@ -282,10 +284,10 @@ async function readSourcePlugins(service: PresetService, sourceId: string): Prom
  *
  * @param req - Node 的请求对象。
  * @param res - Node 的响应对象。
- * @param deps - `{ getPresets, getScope, getRegistry, trustedHosts }`。
+ * @param deps - `{ getPresets, getScope, getRegistry, trustedHosts, bindHost }`。
  */
 export async function handleCreatePreset(req: IncomingMessage, res: ServerResponse, deps: PresetDeps): Promise<void> {
-    const requestError = validateMutationRequest(req, deps.trustedHosts)
+    const requestError = validateMutationRequest(req, deps.trustedHosts, deps.bindHost)
     if (requestError !== null) {
         json(res, requestError.statusCode, { ok: false, error: requestError.error })
         return
@@ -399,10 +401,10 @@ function bindingsWithout(config: StudioConfig | undefined, presetId: string): Pr
  *
  * @param req - Node 的请求对象。
  * @param res - Node 的响应对象。
- * @param deps - `{ getPresets, getScope, getRegistry, trustedHosts }`。
+ * @param deps - `{ getPresets, getScope, getRegistry, trustedHosts, bindHost }`。
  */
 export async function handleDeletePreset(req: IncomingMessage, res: ServerResponse, deps: PresetDeps): Promise<void> {
-    const requestError = validateMutationRequest(req, deps.trustedHosts)
+    const requestError = validateMutationRequest(req, deps.trustedHosts, deps.bindHost)
     if (requestError !== null) {
         json(res, requestError.statusCode, { ok: false, error: requestError.error })
         return

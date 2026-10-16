@@ -84,6 +84,29 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: unknown[]): boolean {
     })
 }
 
+/**
+ * host 是否就是监听器绑定的那个地址。
+ *
+ * **与平台同口径。** 平台自己的 /api 围栏除回环与信任清单，还额外接受「本部署的绑定
+ * 地址本身」（安装目录 `dsh-client-connection/lib/index.js` 的 `isBindAddressAuthority`）。
+ * 少了这一支，web 服务绑到具体本机 IP 时平台界面正常、本插件的面板整片 403。
+ *
+ * 只比**主机名**（与平台一致：同一个地址换任何端口都放行）；IPv6 字面量可能带 `%zone`
+ * ——那是接口选择器、不是地址文本，且必须补方括号才是合法 authority。
+ *
+ * @param hostUrl - 已解析的 `host` 头。
+ * @param bindHost - 监听器自己的绑定地址（`ctx.webServer.host`）；取不到即 undefined ⇒ 不放宽。
+ */
+function isBindAddressAuthority(hostUrl: URL, bindHost: string | undefined): boolean {
+    if (bindHost === undefined) return false
+
+    const zoneAt = bindHost.indexOf('%')
+    const address = zoneAt === -1 ? bindHost : bindHost.slice(0, zoneAt)
+    const bindUrl = parseAuthority(address.includes(':') ? `[${address}]` : address)
+
+    return bindUrl !== undefined && bindUrl.hostname === hostUrl.hostname
+}
+
 /** 围栏的统一拒绝结果。 */
 function forbiddenHost(): GuardReject {
     return { statusCode: 403, error: 'forbidden host' }
@@ -92,15 +115,19 @@ function forbiddenHost(): GuardReject {
 /**
  * 请求围栏。通过返回 null，否则返回 `{ statusCode, error }`。
  * @param req - Node 的请求对象。
- * @param trustedHosts - 用户显式信任的 authority 清单，通常来自 `webRuntime`。
+ * @param trustedHosts - 用户显式信任的 authority 清单（取自 `webStartup.trustedHosts`；
+ *   老平台在 `webRuntime.trustedHosts` 上，见 `api.js`）。
+ * @param bindHost - 监听器自己的绑定地址（`ctx.webServer.host`）；取不到即 undefined ⇒ 不放宽。
  */
-export function validateRequestOrigin(req: IncomingMessage, trustedHosts: unknown[]): GuardReject | null {
+export function validateRequestOrigin(req: IncomingMessage, trustedHosts: unknown[], bindHost?: string): GuardReject | null {
     const host = typeof req.headers.host === 'string' ? req.headers.host : ''
     const hostUrl = parseAuthority(host)
     if (hostUrl === undefined) return forbiddenHost()
     if (!isCanonicalAuthority(host, hostUrl)) return forbiddenHost()
 
-    const isReachableHost = isLoopbackHostname(hostUrl.hostname) || isTrustedAuthority(hostUrl, trustedHosts)
+    const isReachableHost = isLoopbackHostname(hostUrl.hostname)
+        || isTrustedAuthority(hostUrl, trustedHosts)
+        || isBindAddressAuthority(hostUrl, bindHost)
     if (!isReachableHost) return forbiddenHost()
 
     // 跨站发起的请求一律拒绝，哪怕 host 头本身看着正常
@@ -127,9 +154,10 @@ export function validateRequestOrigin(req: IncomingMessage, trustedHosts: unknow
  *
  * @param req - Node 的请求对象。
  * @param trustedHosts - 用户显式信任的 authority 清单。
+ * @param bindHost - 监听器自己的绑定地址；与读围栏同一判据（见 `validateRequestOrigin`）。
  */
-export function validateMutationRequest(req: IncomingMessage, trustedHosts: unknown[]): GuardReject | null {
-    const hostError = validateRequestOrigin(req, trustedHosts)
+export function validateMutationRequest(req: IncomingMessage, trustedHosts: unknown[], bindHost?: string): GuardReject | null {
+    const hostError = validateRequestOrigin(req, trustedHosts, bindHost)
     if (hostError !== null) return hostError
 
     if (req.headers[CLIENT_MARKER_HEADER] !== '1') {

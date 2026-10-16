@@ -40,6 +40,8 @@ interface LiveSkillService {
 /** 宿主 webServer 服务。 */
 interface WebServerService {
     register(opts: { kind: string; path: string; handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void> }): void
+    /** 监听器配置的绑定地址（平台 `dsh-host-webserver` 的 `get host()`：一个具体的本机 IP 字面量）。 */
+    host?: unknown
     [key: string]: unknown
 }
 
@@ -54,6 +56,12 @@ interface ApiDeps {
     getAgents?: () => unknown
     getLlm?: () => unknown
     trustedHosts?: string[]
+    /**
+     * 监听器自己的绑定地址（`ctx.webServer.host`）。取值式：平台没这个成员时是 undefined
+     * ⇒ 围栏不放宽（照旧只认回环与信任清单），不新增失败模式。
+     * 放行判据见 `http-guard.ts` 的 `isBindAddressAuthority`。
+     */
+    bindHost?: string
 }
 
 /** 技能行：与 `observe.skillRowOf` 的返回同形状（面板候选与观察缓存共用）。 */
@@ -315,10 +323,10 @@ function handleClientPart(res: ServerResponse, partName: string): void {
  *
  * @param req - Node 的请求对象。
  * @param res - Node 的响应对象。
- * @param deps - `{ getScope, trustedHosts }`；`getScope()` 在服务未就绪时返回 undefined。
+ * @param deps - `{ getScope, trustedHosts, bindHost }`；`getScope()` 在服务未就绪时返回 undefined。
  */
 async function handleConfigUpdate(req: IncomingMessage, res: ServerResponse, deps: ApiDeps): Promise<void> {
-    const requestError = validateMutationRequest(req, deps.trustedHosts as unknown[])
+    const requestError = validateMutationRequest(req, deps.trustedHosts as unknown[], deps.bindHost)
     if (requestError !== null) {
         json(res, requestError.statusCode, { ok: false, error: requestError.error })
         return
@@ -413,7 +421,13 @@ async function handleConfigUpdate(req: IncomingMessage, res: ServerResponse, dep
 /**
  * 挂上本插件的 HTTP 路由。
  *
- * 需要 `webServer`（注册路由）与 `webRuntime`（取信任主机清单）两个服务。
+ * 只需要 `webServer`（注册路由）。信任主机清单走**取值式**：0.2.1-alpha.5 起它在
+ * `webStartup.trustedHosts` 上（老平台在 `webRuntime.trustedHosts` 上），两处都取不到就按
+ * 空清单处理——影响面只是「用户显式信任的 authority」那一档，不阻塞路由挂载。
+ *
+ * 围栏与平台同口径：放行只有三档——回环、信任清单、**监听器绑定地址本身**（任意端口）；
+ * 平台自己的 /api 围栏就是这么判的（见 `http-guard.ts` 的 `isBindAddressAuthority`），
+ * 少了这一档，web 服务绑到具体本机 IP 时平台界面正常、本插件面板整片 403。
  *
  * @param ctx - 插件所在的 context。
  * @param logger - 用于报错的 logger。
@@ -422,13 +436,17 @@ async function handleConfigUpdate(req: IncomingMessage, res: ServerResponse, dep
  *   现成的对象。`getSkills` 是「技能集候选主动读取」的来源（官方技能服务）。
  */
 export function mountApi(ctx: Ctx, logger: Logger, deps: ApiDeps): void {
-    const webRuntime = ctx.webRuntime as { trustedHosts?: unknown } | undefined
-    const trustedHosts: string[] = Array.isArray(webRuntime?.trustedHosts)
-        ? (webRuntime?.trustedHosts as string[])
-        : []
-    const requestDeps: ApiDeps = { ...deps, trustedHosts }
+    const webStartup = ctx.get?.('webStartup') as { trustedHosts?: unknown } | undefined
+    const webRuntime = ctx.get?.('webRuntime') as { trustedHosts?: unknown } | undefined
+    const declaredHosts = webStartup?.trustedHosts ?? webRuntime?.trustedHosts
+    const trustedHosts: string[] = Array.isArray(declaredHosts) ? (declaredHosts as string[]) : []
 
+    // 绑定地址也走取值式：平台 `dsh-host-webserver` 的 `get host()` 给的是配置里那一个具体的
+    // 本机 IP 字面量；老平台没这个成员就取不到 ⇒ 不放宽（围栏照旧只认回环与信任清单）。
     const webServer = ctx.webServer as WebServerService | undefined
+    const bindHost = typeof webServer?.host === 'string' ? webServer.host : undefined
+    const requestDeps: ApiDeps = { ...deps, trustedHosts, bindHost }
+
     webServer?.register({
         kind: 'prefix',
         path: API_PREFIX,
@@ -437,7 +455,7 @@ export function mountApi(ctx: Ctx, logger: Logger, deps: ApiDeps): void {
             const url = new URL(req.url ?? '/', 'http://localhost')
             const path = url.pathname.replace(/\/+$/, '')
 
-            const hostError = validateRequestOrigin(req, trustedHosts)
+            const hostError = validateRequestOrigin(req, trustedHosts, bindHost)
             if (hostError !== null) {
                 json(res, hostError.statusCode, { ok: false, error: hostError.error })
                 return

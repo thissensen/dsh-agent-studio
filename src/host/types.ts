@@ -205,6 +205,9 @@ export interface Ctx {
     settings?: SettingsService
     tools?: unknown
     webServer?: unknown
+    /** 命令行侧的 web 服务（0.2.1-alpha.5 起信任主机清单在这里的 `trustedHosts` 上）。 */
+    webStartup?: unknown
+    /** 老平台的 web 运行时（0.2.1-alpha.5 起平台已删掉这个服务）。 */
     webRuntime?: unknown
     subagents?: unknown
     fiber?: unknown
