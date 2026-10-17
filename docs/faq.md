@@ -6,7 +6,7 @@
 
 ## 支持哪些环境？
 
-纯 Web 版（`dsh --profile web`）与桌面版都支持——桌面版就是 Web 版加一层 Electron 壳，两边共用同一套 host 逻辑。
+纯 Web 版（`dsh --profile web`）与桌面版都支持——桌面版就是 Web 版加一层 Electron 壳，两边共用同一套 host 逻辑。但**版本下界是硬的**：本插件要求 DSH `0.2.1-alpha.2` 及以上（全功能最低版本，派活依赖这一步才有的 `subagents.startActivation()`）；桌面版当前自带的 `0.2.0-rc.2` 达不到，那边请装 `dsh-agent-studio@0.1.5`。
 
 ## 为什么某个预设的「提示词集」卡片是灰的？
 

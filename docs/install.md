@@ -2,8 +2,9 @@
 
 ## 环境要求
 
-- **DSH（DeepSeek Harness）**：纯 Web 版（`dsh --profile web`）与桌面版都支持。桌面版就是 Web 版加一层 Electron 壳，两边共用同一套 host 逻辑。
-- **版本**：需要 **DSH `0.1.7-rc.1` 及以上**（本插件在 `peerDependencies` 里要求平台包 `>=0.1.7-rc.1`）。预设在这一版从「目录里的文件」改成了「插件声明的列表」，本插件依赖随之新增的 `@deepseek-ai/dsh-agent-preset-registry`；装在更早的版本上会因为缺这个包而无法启动——插件市场会据此拦住这次更新。
+- **DSH（DeepSeek Harness）**：纯 Web 版（`dsh --profile web`）跑得最好；桌面版是 Web 版加一层 Electron 壳，host 半边同一套代码，但**桌面版当前自带的平台版本达不到本插件的要求**（见下一条）。
+- **版本**：需要 **DSH `0.2.1-alpha.2` 及以上**（`engines.dsh` 与 `peerDependencies` 里的平台包**同串**写 `>=0.2.1-alpha.2`）。这个下界写的是**全功能最低版本**：派活（`studio_list_subagents` / `studio_delegate`）走平台的 `subagents.startActivation()`，而这个入口 `0.2.1-alpha.2` 才有（同一步删掉了旧的 `start` / `startContinuable`）。早先 `0.1.7-rc.1` 那条下界来自预设改成「插件声明的列表」时新增的 `@deepseek-ai/dsh-agent-preset-registry`，现在被派活这条线顶掉了。
+- **装在达不到下界的平台上会怎样**：启动门禁**整份跳过**这个 bundle（日志里是 `skipping profile bundle "dsh-agent-studio"`），插件市场也会拦住这次更新——没有「装了半残」的中间态。社区桌面版自带 `0.2.0-rc.2`，正好在门外：想在它上面用，就装旧版 `dsh-agent-studio@0.1.5`（走旧 API，面板与派活都正常）。
 - 本插件不挑操作系统，Windows / macOS / Linux 都能用。
 
 ## 三条安装路线
@@ -21,7 +22,8 @@ dsh plugin --profile web add dsh-agent-studio
 ```
 
 ```sh [桌面版]
-dsh plugin --profile desktop add dsh-agent-studio
+# 桌面版自带平台 0.2.0-rc.2，装不了 0.1.7 起的新版 —— 装旧版：
+dsh plugin --profile desktop add dsh-agent-studio@0.1.5
 ```
 
 :::
@@ -31,7 +33,7 @@ dsh plugin --profile desktop add dsh-agent-studio
 到 [Releases](https://github.com/thissensen/dsh-agent-studio/releases) 下载 `dsh-agent-studio-<版本>.tgz`——它就是 npm 上那份包，`lib/` 与 `client/` 的构建产物都在里面，不用自己构建：
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.6.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.1.7.tgz"
 ```
 
 包放在哪个目录都行，把路径写对即可（`./` 开头或绝对路径），文件名里的版本号换成你实际下载的那个。**离线、内网环境走这条。**

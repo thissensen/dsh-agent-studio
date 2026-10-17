@@ -47,7 +47,7 @@ dsh plugin --profile web add dsh-agent-studio
 Download `dsh-agent-studio-<version>.tgz` from [Releases](https://github.com/thissensen/dsh-agent-studio/releases). It is the very artifact npm serves, with the `lib/` and `client/` build output already inside — no build step:
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.6.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.1.7.tgz"
 ```
 
 The file can live in any directory as long as the path is right (`./` or an absolute path); swap in whatever version you actually downloaded. **Use this route for offline or air-gapped setups.**
@@ -188,8 +188,8 @@ agent-studio:
 
 ## Compatibility
 
-- **Target environment**: the pure web build of DSH (`dsh --profile web`); community desktop builds work too.
-- **Host services it depends on**: seven platform packages are listed in `peerDependencies` **with version ranges** (`>=0.1.7-rc.1`) — that is what the plugin market and the platform use to decide whether the plugin may be installed, so an old DSH gets the update blocked instead of ending up with a plugin that will not start. Only `schemastery` is optional.
+- **Target environment**: the pure web build of DSH (`dsh --profile web`). Community desktop builds currently ship platform `0.2.0-rc.2`, which is **below this plugin's minimum** — install the older `dsh-agent-studio@0.1.5` there.
+- **Host services it depends on**: seven platform packages are listed in `peerDependencies` **with version ranges** (`>=0.2.1-alpha.2`, the same range as `engines.dsh`) — that is what the plugin market and the platform use to decide whether the plugin may be installed: an old DSH gets the update blocked and the bundle skipped at startup instead of ending up with a plugin that will not start. Only `schemastery` is optional. The floor is the **minimum version for full functionality** — delegation needs `subagents.startActivation()`, which exists only from `0.2.1-alpha.2`.
 - **Interface language and theme** follow the platform; Chinese and English copy ship with it, and both dark and light themes are supported.
 - **The client half has no build step**: `client/index.js` is the shell (loaded at startup) and `client/parts/panel.js` is the panel (served on demand by a host route).
 

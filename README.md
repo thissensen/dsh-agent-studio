@@ -46,7 +46,7 @@ dsh plugin --profile web add dsh-agent-studio
 到 [Releases](https://github.com/thissensen/dsh-agent-studio/releases) 下载 `dsh-agent-studio-<版本>.tgz`，它就是 npm 上那份包，`lib/` 与 `client/` 的构建产物都在里面，不用自己构建：
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.6.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.1.7.tgz"
 ```
 
 包放在哪个目录都行，把路径写对即可（`./` 开头或绝对路径），文件名里的版本号换成你实际下载的那个。**离线、内网环境走这条。**
@@ -187,8 +187,8 @@ agent-studio:
 
 ## 兼容性
 
-- **目标环境**：纯 Web 版 DSH（`dsh --profile web`），社区桌面版也支持。
-- **依赖的宿主服务**：七个平台包写在 `peerDependencies` 里，并且**指明版本**（`>=0.1.7-rc.1`）——这是插件市场与平台判断「能不能装」的依据，缺了或版本不够时市场会拦住更新，而不是让你装完启动失败。只有 `schemastery` 是可选的。
+- **目标环境**：纯 Web 版 DSH（`dsh --profile web`）。社区桌面版当前自带的平台是 `0.2.0-rc.2`，**达不到本插件的最低版本**，那边请装旧版 `dsh-agent-studio@0.1.5`。
+- **依赖的宿主服务**：七个平台包写在 `peerDependencies` 里，并且**指明版本**（`>=0.2.1-alpha.2`，与 `engines.dsh` 同串）——这是插件市场与平台判断「能不能装」的依据：版本不够时市场拦住更新、启动门禁整份跳过 bundle，而不是让你装完启动失败。只有 `schemastery` 是可选的。这个下界写的是**全功能最低版本**——派活依赖 `0.2.1-alpha.2` 才有的 `subagents.startActivation()`。
 - **界面语言与主题**跟随平台，自带中文 / English 两套文案，深色浅色都能看。
 - **client 半边零构建**：`client/index.js` 是壳（启动时加载），`client/parts/panel.js` 是面板（由 host 路由运行时按需伺服）。
 
