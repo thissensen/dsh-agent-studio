@@ -94,9 +94,13 @@ declare module '@deepseek-ai/dsh-util-values' {
 }
 
 declare module '@deepseek-ai/dsh-scope' {
-    /** 取一个 context 的 scope key。 */
-    export function scopeOf(ctx: unknown): string | undefined
+    /**
+     * 取一个 context 的 scope key。
+     *
+     * 返回的是**不透明对象**（平台 `ScopeKey = object`），不是字符串。
+     */
+    export function scopeOf(ctx: unknown): unknown
 
-    /** 取 scope key 的父级（standing 预设挂在 agent scope 的父级上）。 */
-    export function scopeParentOf(scopeKey: string): string | undefined
+    /** 取 scope key 的父级（standing 预设挂在 agent scope 的父级上）；同样是不透明对象。 */
+    export function scopeParentOf(key: unknown): unknown
 }

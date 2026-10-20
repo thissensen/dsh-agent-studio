@@ -14,10 +14,12 @@
 declare module '@deepseek-ai/dsh-client-ui-primitives' {
     import type {
         ButtonHTMLAttributes,
+        CSSProperties,
         HTMLAttributes,
         InputHTMLAttributes,
         ReactElement,
         ReactNode,
+        RefObject,
     } from 'react'
 
     export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -60,6 +62,34 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
         copiedLabel: string
     }
     export const HoverCard: (props: HoverCardProps) => ReactElement
+
+    /**
+     * 悬浮层附着在锚点上的定位参数。字段照官方
+     * `lib/types/useAnchoredPosition.d.ts` 抄（第 14–35 行）。
+     */
+    export interface AnchoredPositionOptions {
+        /** 悬浮层是否已挂载、需要跟着锚点走。 */
+        open: boolean
+        /** 悬浮层从哪个元素上定出来。 */
+        anchorRef: RefObject<HTMLElement | null>
+        /** 悬浮层自身：量它的真实尺寸来夹视口。 */
+        panelRef: RefObject<HTMLElement | null>
+        /** 挂锚点哪条边：下方（`bottom`，默认）还是上方（`top`）。 */
+        side?: 'top' | 'bottom'
+        /** 与锚点哪条边对齐：左缘（`start`，默认）还是右缘（`end`）。 */
+        align?: 'start' | 'end'
+        /** 锚点被 `side` 点名的那条边与悬浮层之间留的距离。 */
+        gap: number
+        /** 悬浮层与视口各边留的距离；顶层浮层的 overlay inset 会加大上边距。 */
+        margin: number
+    }
+    /**
+     * 跟踪锚点、返回悬浮层的 `fixed` 坐标（`left`/`top`，可直接铺进 `style`）。
+     *
+     * `open` 为假时返回 `null`；`gap`/`margin` 必填；**只支持上下两个方向**，
+     * 没有左右定位。
+     */
+    export const useAnchoredPosition: (options: AnchoredPositionOptions) => CSSProperties | null
 
     export interface SwitchProps {
         checked: boolean

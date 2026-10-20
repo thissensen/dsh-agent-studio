@@ -134,7 +134,7 @@ export interface PresetDefinitionConfig {
  * 插件配置。
  *
  * 字段全部可选：读取时 schema 的 `.default()` 会补值，但**写入端点的部分键**
- * （没发某个键的老客户端）确实可能是 undefined——「不发 = 这一项不参与写入」，
+ * （没发某个键的调用方）确实可能是 undefined——「不发 = 这一项不参与写入」，
  * 所以类型必须如实反映。
  */
 export interface StudioConfig {
@@ -153,6 +153,14 @@ export interface StudioConfig {
     skillSets?: SkillSetConfig[]
     runtimeContextOff?: string[]
     bindings?: BindingsConfig
+    /**
+     * 面板是否挂到平台主页面：界面偏好，不是池（不进三池那套装载 / 投递语义）。
+     *
+     * 关掉后 `main` 与 `sidebar.panellist` 两条槽位一起注销：左栏入口与主页面那一页一起
+     * 消失（主区退回会话页），设置页那一节始终在——不想在左栏和主页面看见它、但仍要能
+     * 从设置里进去改配置，是这条开关存在的理由。默认 true（老盘没有这个键时按 true 读）。
+     */
+    mountMainPage?: boolean
 }
 
 // ── 宿主 ────────────────────────────────────────────────────────────────────
@@ -205,10 +213,8 @@ export interface Ctx {
     settings?: SettingsService
     tools?: unknown
     webServer?: unknown
-    /** 命令行侧的 web 服务（0.2.1-alpha.5 起信任主机清单在这里的 `trustedHosts` 上）。 */
+    /** 命令行侧的 web 启动服务；信任主机清单在它的 `trustedHosts` 上。 */
     webStartup?: unknown
-    /** 老平台的 web 运行时（0.2.1-alpha.5 起平台已删掉这个服务）。 */
-    webRuntime?: unknown
     subagents?: unknown
     fiber?: unknown
     [key: string]: unknown

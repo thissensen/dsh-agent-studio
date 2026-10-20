@@ -11,7 +11,7 @@ A visual configuration plugin for [DeepSeek Harness](https://github.com/deepseek
 
 Every turn, the model sees three things: the **system prompt**, the **tool catalog**, and the **skill catalog**. The more plugins, tools and MCP servers you install, the bigger those three get, and the worse the model performs. On top of that, DSH's subagent configuration is bare-bones: there is no easy way to give a subagent its own prompt, tools, skills, model or reasoning effort.
 
-This plugin fixes both. It turns an agent into bricks you can assemble freely: prompt, tools, skills, model. **Subagents get the same treatment**, presets can be created on the spot, and official PTC mode is supported.
+This plugin fixes both. It turns an agent into bricks you can assemble freely: prompt, tools, skills, model. **Subagents get the same treatment**, presets can be created on the spot, and official PTC mode is supported. A fallback chain may span providers.
 
 Its configuration **lives in the plugin's own data**, it leaves the host's existing presets untouched, and uninstalling restores everything.
 
@@ -47,7 +47,7 @@ dsh plugin --profile web add dsh-agent-studio
 Download `dsh-agent-studio-<version>.tgz` from [Releases](https://github.com/thissensen/dsh-agent-studio/releases). It is the very artifact npm serves, with the `lib/` and `client/` build output already inside — no build step:
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.7.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.1.8.tgz"
 ```
 
 The file can live in any directory as long as the path is right (`./` or an absolute path); swap in whatever version you actually downloaded. **Use this route for offline or air-gapped setups.**
@@ -88,6 +88,8 @@ Every screen ships in a light and a dark variant:
   <img src="assets/panel-overview-dark.png" width="49%" alt="Agent details (dark)">
 </p>
 
+> The screenshot predates 0.1.8: import / export now share one checkbox tree in the top bar, and the background modes are named non-blocking / blocking / AI decides.
+
 <img src="assets/agent-detail.png" width="520" alt="A full agent detail view">
 
 <img src="assets/prompt-set.png" width="620" alt="Prompt set: section list, PTC-only marks, custom and platform presets">
@@ -101,10 +103,12 @@ Every screen ships in a light and a dark variant:
 | Agent pool (left) | One row per agent: bound preset, loaded sets, Agent mode, subagent roster |
 | Set libraries (left) | The three set pools: create, copy, rename, delete |
 | Details (right) | Pick a set → edit its members; pick an agent → load sets, set the model and background mode, attach subagents, toggle the snapshot switch |
-| Top bar | Preset tabs plus new / delete preset, main-agent binding, full import / export (the export is the draft, including unsaved changes) |
-| Bottom bar | Save changes; per-pool import / export |
+| Top bar | Preset tabs plus new / delete preset, main-agent binding, import / export (both use the same checkbox tree; the export is the draft, including unsaved changes) |
+| Bottom bar | Register on the main page, save state and save changes |
 
-Import always opens a confirmation dialog first (whole-config and per-pool imports **share one**); its **"Overwrite same ids"** switch decides whether a colliding id is overwritten or fails the whole import. Import only merges into the draft — nothing is written until you save.
+Import picks a file first and then lets you check the items to merge into the draft; export uses the same tree to pick pools and items (**the four pools only — no preset bindings or switches**). The **"Overwrite same ids"** switch in that tree decides whether a colliding id is overwritten or fails the whole import (off by default = fail). Import only merges into the draft — nothing is written until you save.
+
+**Register on home page**: when on, the Agent Studio panel shows up on the home page and its entry appears in the left sidebar; when off, both disappear (the main area returns to the conversation page) and you can reopen it from **Settings → Agent Studio** at any time. It is a global switch, unrelated to the draft, and takes effect immediately.
 
 Before an id is renamed, the panel lists everyone referencing it, and the rename updates every reference — no dangling references are left behind.
 
@@ -197,8 +201,8 @@ agent-studio:
 
 - **Sections cannot be rewritten under minimal-style presets.** Their persona section carries `complete: true`, meaning "this is the whole prompt, stop splicing". After the assembly waterfall returns, the platform forces the section list back to that one section, so whatever whitelist the plugin computed inside the waterfall is overwritten — that single section is always what ships. That is platform design, not a plugin defect, and since only one section was ever in play the practical loss is small. The tool and skill surfaces have no such post-processing, and `standard` / `code` / `cordis` and other regular presets behave normally.
 - **Delegation uses the plugin's own tools**: `studio_list_subagents` computes the roster live, `studio_delegate` dispatches by agent id — **only through it do a subagent's own settings (prompt / tools / skills / model) resolve to its identity and take effect**. The official `subagent` tool gets no special treatment (it is there if your tool sets keep it), but the subagents it starts are never registered, so they only ever run with the surface of the main agent bound to that preset.
-- **Identity stays exact even when several subagents are dispatched at once.** Every dispatch pre-generates the child session id *before* the call — both the wait-for-result mode and the background mode are continuable child sessions — so the session-to-agent mapping is written before the child is created. The platform's `agent/created` event does not say which dispatch triggered the creation, so queue-order pairing survives only as a fallback.
-- **Tool candidates have a cold start.** With no session around, those tool registrations do not exist in the host process and cannot be queried from anywhere. So observations are cached per preset, and the panel falls back to that cache.
+- **Identity stays exact even when several subagents are dispatched at once.** Every dispatch pre-generates the child session id *before* the call — both the wait-for-result mode and the background mode are continuable child sessions — so the session-to-agent mapping is written before the child is created. The platform's `agent/created` event does not say which dispatch triggered the creation, so the identity has to be written before the dispatch.
+- **Tool candidates no longer need a prior conversation.** A registered preset is activated immediately, so the panel reads that preset's current tool surface directly (`GET /tools?preset=`); only when that read fails (no tool service, broken preset) does it fall back to the per-preset on-disk observation cache.
 - **Automatic fallback only takes over when fallbacks are configured.** With no fallbacks configured the plugin never touches the request and retries behave exactly as the platform default; after takeover the retry bound comes from the plugin's config (counted per candidate).
 
 ## Layout
@@ -209,9 +213,9 @@ lib/                  host-half output (the package's real entry; tsc from src/h
   config.js           the four-pool schema + load-overlap check (single source of truth for the data model)
   preset.js           the one way to ask "which preset is this agent on"
   observe.js          read-only observation layer at assembly time
-  cache.js            on-disk cache of observations (the panel's cold-start candidates)
+  cache.js            on-disk cache of observations (fallback when the live `/tools` endpoint cannot be read)
   apply.js            the apply layer (main-agent assembly + subagent creation window)
-  delegate.js         delegation tools + claim map and pending queue
+  delegate.js         delegation tools + subagent identity registry (session id → agent)
   fallback.js         automatic model fallback (candidate chain / per-candidate retries / switch notice)
   presets.js          preset management (list / copy / delete, via official services)
   models.js           model catalog (provider / model / reasoning effort)

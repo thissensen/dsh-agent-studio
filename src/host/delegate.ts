@@ -16,22 +16,19 @@
  * 发生在 `settings.register` 之后，把配置写入通道一起带走了（见 `index.js` 里那段注释）。
  * 前缀本身没有语义，纯粹是不跟别人抢名字。
  *
- * ## 身份登记（认领）
+ * ## 身份登记
  *
- * 「子代理会话 → 代理」的映射要**早于子代理的第一次装配**建好，否则装配期的段拼接
+ * 「子代理会话 → 代理」的映射必须**早于子代理的第一次装配**建好，否则装配期的段拼接
  * 查不到身份、退回默认面（2026-09-16 实测的「配了没用」根因：那次登记发生在派活调用返回
  * 之后，而前台派活要等整个 turn 跑完才返回）。
  *
- * 三条登记路径，从早到晚：
+ * 唯一一条登记路径是**派活前预生成会话 id**：`startActivation` 接受调用方指定的
+ * `childId`（只有 local 后端采纳，派活前用 `prepareContinuable` 守卫把不支持的传输层
+ * 挡下），所以映射在调用**前**就写好了——零竞态。`agent/created`（挂工具面）与装配期
+ * （拼段）都只查这张表，没有第二条补建路径。
  *
- *  1. **预生成会话 id**（两档都走）：`startActivation` 接受调用方指定的 `childId`（只有
- *     local 后端采纳，派活前用 `prepareContinuable` 守卫把不支持的传输层挡下），所以映射
- *     在派活**调用前**就写好了——零竞态。**前台档现在也走这条路**（旧的 `start()` 拿不到
- *     预生成的 id）。
- *  2. **创建窗口认领**（上一条没兑现时）：入队在派活调用**前**同步完成，`agent/created`
- *     必然早于第一次装配（创建 → 挂 composition → 提交首个 prompt），在那里按父会话配对。
- *     同父并发派活时用队列顺序（FIFO）配对。
- *  3. **装配期兜底认领**：装配时若映射仍缺失，按父会话从队列再认一次（见 `apply.js`）。
+ * **已知边界**：映射只在内存里。DSH 重启后旧子会话的映射丢失 ⇒ 该子代理的装配退回
+ * 默认面；续聊仍可用（会话 id 不变），但不再按原代理面收窄。
  *
  * @module dsh-agent-studio/delegate
  */
@@ -46,12 +43,6 @@ import type { AgentConfig, BackgroundMode, Ctx, Logger, SettingsScope, StudioCon
 
 import { agentById, boundAgentId } from './config.js'
 import { resolvePresetId } from './preset.js'
-
-/** 待认领队列里的一项。 */
-interface Claim {
-    parentSessionId: string
-    agentId: string
-}
 
 /** 交给 `ctx.subagents.startActivation()` 的规格（`label` 与 `signal` 在顶层，不在 `request` 里）。 */
 interface ActivationSpec {
@@ -143,19 +134,8 @@ interface DelegateArgs {
  */
 const agentByChildSession = new Map<string, string>()
 
-/**
- * 待认领队列：`{ parentSessionId, agentId }`。
- *
- * 在 `start()` 调用**前**同步入队——这个顺序是硬要求：它保证第一次装配时一定有可
- * 认领的项。创建窗口与装配期都按父会话从这里取；取走的项从队列移除。
- */
-const pendingClaims: Claim[] = []
-
 /** 映射表上限。continuable 子代理可以长期活着，不设上限会一路涨上去。 */
 const MAX_TRACKED_CHILDREN = 200
-
-/** 待认领队列上限：正常路径下每项都会在一两次装配内被取走，这是异常兜底。 */
-const MAX_PENDING_CLAIMS = 50
 
 /** 官方子代理传输层的注册名。`spawn` 每次新建独立上下文，与代理语义相符。 */
 const SPAWN_PROVIDER = 'spawn'
@@ -172,7 +152,7 @@ export function agentOfChildSession(sessionId: string): string | undefined {
 /**
  * 记下「这个子代理属于哪个代理」。同一会话重复登记时以最新一次为准。
  *
- * 除内部路径外也导出给自检用：可续子代理的"精确登记"就是这条路（见派活代码），
+ * 除内部路径外也导出给自检用：派活前的「精确登记」就是这条路（见派活代码），
  * 自检需要它来造出「映射已建立」的状态。
  *
  * @param sessionId - 子代理的会话 id。
@@ -186,43 +166,6 @@ export function noteChildAgent(sessionId: string, agentId: string): void {
         const oldest = agentByChildSession.keys().next().value
         agentByChildSession.delete(oldest as string)
     }
-}
-
-/**
- * 按父会话从待认领队列里认领一个刚创建的子代理，并记进映射表。
- *
- * @param claim - `{ childId, parentSessionId }`。
- * @returns 认领到的代理 id；队列里没有该父会话的项时 undefined。
- */
-export function claimChildAgent({ childId, parentSessionId }: { childId: string; parentSessionId: string }): string | undefined {
-    const index = pendingClaims.findIndex((claim) => claim.parentSessionId === parentSessionId)
-    if (index === -1) return undefined
-
-    const [claim] = pendingClaims.splice(index, 1)
-    noteChildAgent(childId, claim.agentId)
-
-    return claim.agentId
-}
-
-/**
- * 把一次即将发生的创建放进待认领队列。
- * @param parentSessionId - 派活方的会话 id。
- * @param agentId - 要派出去的代理 id。
- * @returns 队列项，供失败时移除。
- */
-function enqueueClaim(parentSessionId: string, agentId: string): Claim {
-    const claim: Claim = { parentSessionId, agentId }
-    pendingClaims.push(claim)
-
-    while (pendingClaims.length > MAX_PENDING_CLAIMS) pendingClaims.shift()
-
-    return claim
-}
-
-/** 移除一个队列项（start 失败、或精确路径已用不上的时候）。 */
-function dropClaim(claim: Claim): void {
-    const index = pendingClaims.indexOf(claim)
-    if (index !== -1) pendingClaims.splice(index, 1)
 }
 
 /**
@@ -247,7 +190,7 @@ function subagentsOf(config: StudioConfig | undefined, agentId: string | undefin
 /**
  * 解析调用者 agent 所属的代理 id——判「谁的名册可以派」。
  *
- * 子代理优先（映射表 / 兜底认领），主代理走预设绑定。
+ * 子代理优先（查映射表），主代理走预设绑定。
  *
  * @param ctx - 插件所在的 context。
  * @param settingsScope - 本插件设置命名空间的 scope。
@@ -258,16 +201,10 @@ function ownerAgentIdFor(ctx: Ctx, settingsScope: SettingsScope, agent: unknown)
     const a = agent as ModelAgent | undefined
     const session = a?.session
     const sessionId = typeof session?.id === 'string' ? (session.id as string) : undefined
-    const parentSessionId = session?.header?.parentSession
 
     if (sessionId !== undefined) {
         const known = agentOfChildSession(sessionId)
         if (known !== undefined) return known
-
-        if (typeof parentSessionId === 'string') {
-            const claimed = claimChildAgent({ childId: sessionId, parentSessionId })
-            if (claimed !== undefined) return claimed
-        }
     }
 
     return boundAgentId(settingsScope.get(), resolvePresetId(ctx, a?.ctx))
@@ -471,25 +408,14 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
             // 后台档要平台把结算通知投给父模型，前台档只要结果还给这次调用
             spec.delivery = runInBackground ? 'parent' : 'caller'
 
-            // 预生成会话 id ⇒ 映射在创建**之前**就写好，零竞态。队列项是保险（万一这次没兑现）：
-            // 派活返回后清掉。
-            const sessionId = callAgent.session?.id as string
+            // 预生成会话 id ⇒ 映射在创建**之前**写好，零竞态：`startActivation` 采纳调用方
+            // 指定的 `childId`（不支持的传输层已由上面那道守卫挡下）。
             const agentId = targetConfig.id as string
             const childId = randomUUID()
             spec.childId = childId
-            const claim = enqueueClaim(sessionId, agentId)
             noteChildAgent(childId, agentId)
 
-            let activation: SubagentActivation
-            try {
-                activation = await subagents.startActivation(spec)
-
-            } catch (err) {
-                dropClaim(claim)
-                throw err
-            }
-
-            dropClaim(claim)
+            const activation = await subagents.startActivation(spec)
 
             if (runInBackground) return { kind: 'continuable', subagentId: activation.childId }
 

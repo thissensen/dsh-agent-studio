@@ -6,7 +6,7 @@
  * @module dsh-agent-studio/client-parts/styles/shell
  */
 import type { CSSProperties } from 'react'
-import { ROW_LAYOUT, ROW_NOWRAP } from './basis'
+import { INLINE_ROW, ROW_LAYOUT, ROW_NOWRAP, ROW_TAIL } from './basis'
 
 /**
  * 左栏限高要预留的窗口外空间（180px）：底层滚动容器的上沿 104px（真机量的——1420×900 下
@@ -107,6 +107,12 @@ export const SHELL = {
     panel: PANEL,
     barColumn: BAR_COLUMN,
     saveBar: SAVE_BAR,
+    // 保存行最左的「注册到主页面」开关组：行内横排 + 不参与压缩（原子在 `basis`，
+    // 不在这里现写 `flex`，免得与别处两套值）。
+    saveBarMount: {
+        ...INLINE_ROW,
+        ...ROW_TAIL,
+    },
     divider: {
         borderTop: '1px solid rgba(127,127,127,0.22)',
     },

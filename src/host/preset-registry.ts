@@ -3,7 +3,7 @@
  *
  * **为什么需要这么一层**（2026-09-24 核实平台源码）：0.1.7 起平台把预设从「目录里的
  * 文件」改成「插件声明」——创作入口只剩 `agentPresets.register(definition)`，它**不落盘**，
- * 返回一个注销器（`AsyncDisposable`）由注册方自己持有。于是有两个后果：
+ * 返回一个注销函数（`() => Promise<void>`）由注册方自己持有。于是有两个后果：
  *
  *   1. 注册活在**本进程内存**里。插件下次启动只是被重新装配一次，注册全没了 ⇒ 定义
  *      必须存在别处（本插件存进自己的配置，借平台的 settings 通道落盘），启动时照它重放。
@@ -30,8 +30,12 @@ interface PresetAuthoringService {
     register?(definition: { id: string; name?: string; description?: string; plugins: PresetPluginRow[] }): Promise<PresetDeregister>
 }
 
-/** 平台的注销器：源码里是 `AsyncDisposable`（`[Symbol.asyncDispose]`），按鸭子类型两形状都接。 */
-type PresetDeregister = (() => Promise<void>) | { [Symbol.asyncDispose]?: () => Promise<void> } | undefined
+/**
+ * 平台 `register` 返回的是注销函数：`Promise<() => Promise<void>>`（rc.2 npm 包
+ * `lib/types/index.d.ts:44`）。`AsyncDisposable` 是 `acquireScope` 的返回形状（同文件
+ * `:129-131`），两者别混。
+ */
+type PresetDeregister = (() => Promise<void>) | undefined
 
 /** 注册表要的取值函数（配置与日志都「现问现取」，与三层同纪律）。 */
 interface PresetRegistryDeps {
@@ -55,15 +59,6 @@ export interface PresetRegistry {
     create(definition: PresetDefinitionConfig, update: (patch: unknown) => Promise<void>): Promise<void>
     /** 注销一份自建预设并把它从配置里摘掉（删除）。办不成时抛，由端点回 4xx。 */
     remove(presetId: string, update: (patch: unknown) => Promise<void>): Promise<void>
-}
-
-/** 取注销器的调用形态；不认识的形状返回 undefined。 */
-function toDeregister(deregister: PresetDeregister): (() => Promise<void>) | undefined {
-    if (typeof deregister === 'function') return deregister
-
-    const release = deregister?.[Symbol.asyncDispose]
-
-    return typeof release === 'function' ? () => release.call(deregister) : undefined
 }
 
 /** 一份定义是不是能拿去注册（形状守卫；构成本身合法与否由 `parsePlugins` 与平台判）。 */
@@ -116,7 +111,7 @@ export function createPresetRegistry(service: () => unknown, deps: PresetRegistr
             ...(定义.description === undefined || 定义.description === '' ? {} : { description: 定义.description }),
         }
 
-        const 注销 = toDeregister(await 限时注册(平台定义))
+        const 注销 = await 限时注册(平台定义)
         if (注销 === undefined) throw new Error('平台没有返回注销器，这个预设会删不掉')
 
         注销器组.set(预设id, 注销)
