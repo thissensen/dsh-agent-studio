@@ -19,7 +19,7 @@ import type {
     SaveBarProps,
 } from './panel-types'
 import { agentLabel, presetText, setLabel } from './panel-draft'
-import { FieldRow, formButtons, h, menuAnchor } from './panel-widgets'
+import { FieldRow, HelpTip, formButtons, h, menuAnchor } from './panel-widgets'
 
 const { useLayoutEffect, useRef, useState } = React
 
@@ -288,7 +288,7 @@ export function PresetBar(props: PresetBarProps) {
 // ── 保存行 ──────────────────────────────────────────────────────────────
 
 /**
- * 底部保存行：注册到主页面 + 保存态 + 保存改动。
+ * 底部保存行：注册到主页面 / 突破 PTC 120 秒限制 + 保存态 + 保存改动。
  *
  * 它挂在面板根下（不是被管理条包着），才吸得住——见 `STYLE.saveBar` 的说明。
  * 每量到一次高度都往上报：左栏要按它往下让位，两行吸顶时不会叠在一起。
@@ -304,6 +304,9 @@ export function SaveBar(props: SaveBarProps) {
         mountAvailable,
         mountDisabled,
         onToggleMountMainPage,
+        ptcBreakLimit,
+        ptcDisabled,
+        onTogglePtcBreakLimit,
         onSave,
         onHeightChange,
     } = props
@@ -348,6 +351,21 @@ export function SaveBar(props: SaveBarProps) {
                 title: mountAvailable ? t('bar.mountMainPageTitle') : t('bar.mountUnavailableTitle'),
             }),
             h('span', { key: 'caption', style: STYLE.hint }, t('bar.mountMainPage')),
+        ]),
+        // 「突破 PTC 120 秒限制」紧挨着它（同一组全局开关）：同样是点一下直接落盘的开关，
+        // 与草稿无关。问号浮层用自绘 HelpTip——平台的 HoverCard 层级低于设置页弹层。
+        h('div', { key: 'ptc', style: STYLE.saveBarMount }, [
+            h(Switch, {
+                key: 'switch',
+                checked: ptcBreakLimit,
+                disabled: ptcDisabled,
+                onChange: (next: boolean) => onTogglePtcBreakLimit(next),
+                // 平台的 label 是**无障碍名**（不可见）⇒ 可见文案另写一个 span。
+                label: t('bar.ptcBreakLimit'),
+                title: t('bar.ptcBreakLimitTitle'),
+            }),
+            h('span', { key: 'caption', style: STYLE.hint }, t('bar.ptcBreakLimit')),
+            h(HelpTip, { key: 'help', size: 'wide', text: t('bar.ptcBreakLimitHelp') }),
         ]),
         stateText === null ? null : h('span', { key: 'state', style: stateStyle }, stateText),
         h('span', { key: 'spacer', style: ROW_SPACER }),

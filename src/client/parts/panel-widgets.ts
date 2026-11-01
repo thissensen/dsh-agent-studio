@@ -33,13 +33,18 @@ const { useEffect, useRef, useState } = React
 
 export const h = React.createElement
 
-/** 子代理后台模式。映射到官方派活语义，仅被当子代理时生效。 */
-/** 选项数组都带上显式元素类型：否则 `Choice` 的泛型会从字面量推成 `string`，丢掉值域。 */
-/** `labelKey` 而不是文案：这两排是模块级常量，`t` 到渲染时才拿得到。 */
+/**
+ * 子代理后台模式，两档，映射到官方派活语义，仅被当子代理时生效。
+ *
+ * 老配置里的 `model-decides` 只作**兼容读入**、不在界面出现：它仍是合法的
+ * `BackgroundMode`，读进来照样带着走，用户改一次就落到这两档之一。
+ *
+ * 选项数组都带上显式元素类型（否则 `Choice` 的泛型会从字面量推成 `string`，丢掉值域）；
+ * 用 `labelKey` 而不是文案：这两排是模块级常量，`t` 到渲染时才拿得到。
+ */
 export const BACKGROUND_MODES: { id: BackgroundMode; labelKey: CopyKey }[] = [
     { id: 'always-background', labelKey: 'background.always' },
     { id: 'foreground', labelKey: 'background.foreground' },
-    { id: 'model-decides', labelKey: 'background.modelDecides' },
 ]
 
 /** Agent 模式三档（id 与 host 侧 `TOOL_PRESENTATIONS` 同一套；文案见字典）。 */

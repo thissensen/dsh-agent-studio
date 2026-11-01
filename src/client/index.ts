@@ -218,7 +218,7 @@ async function resolveMountPreference(): Promise<void> {
         const response = await fetch(MOUNT_ENDPOINT, { cache: 'no-store' })
         const data = await response.json()
 
-        // 端点回的是 { ok, mountMainPage }：形状不对就按 true 走，别猜。
+        // 端点回的是 { ok, mountMainPage, ptcBreakLimit }：本处只按名取 `mountMainPage`，形状不对就按 true 走，别猜。
         if (data?.ok === true && typeof data.mountMainPage === 'boolean') next = data.mountMainPage
 
     } catch {

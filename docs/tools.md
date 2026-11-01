@@ -33,7 +33,7 @@ DSH 官方提供的工具包（`dsh-tool-*`、实验组 `dsh-experimental-*` 与
 | `terminal_open` `terminal_send` `terminal_read` `terminal_close` `terminal_list` `terminal_signal` | `dsh-tool-terminal` | 按 owner 隔离的持久终端（保留 shell / REPL 状态） |
 
 - **一次性版**每次都是全新 shell，cwd、变量、函数不会留；**持久版**为每个 agent 保留一份隔离的 shell，命令串行执行。
-- `run_in_background` 把长时间命令变成后台任务，之后用 `job_*` 查看或终止；归属明确的任务完成时，agent 会在会话内收到通知。
+- `run_in_background` 是 `bash` / `pwsh` 这类**平台 job 工具**的参数（不是本插件的）：把长时间命令变成后台任务，之后用 `job_*` 查看或终止；归属明确的任务完成时，agent 会在会话内收到通知。本插件的 `studio_delegate` 不收这个参数——它等不等看目标代理的后台模式。
 - 命令被沙箱拒绝时，可以带更宽的 `sandbox_permissions` 与一句理由重试一次（需用户批准）。
 - `terminal_*` 是另一条路：需要在多次调用之间留住 shell 或 REPL 状态时用它；`terminal_send` 也能把长跑命令扔进后台，拿 `job_*` 管。
 
@@ -52,6 +52,17 @@ DSH 官方提供的工具包（`dsh-tool-*`、实验组 `dsh-experimental-*` 与
 - `workflow` 用在**用户明确要求工作流或大型多 agent 编排**时；父轮次会等所有委派结束，取消或异常返回错误，而不是部分成功。
 - 三者的分工：普通长期工作用 `goal`，有界委派用 `subagent` 或 `workflow`，Ralph 式迭代只在用户明确要求时用。
 - 本插件提供替代路径：`studio_list_subagents` 列出该 agent 名下的子代理，`studio_delegate` 按代理 id 派活——**只有走它，子代理那套独立配置（提示词 / 工具 / 技能 / 模型）才认得出身份、才生效**。官方 `subagent` 没有特殊待遇（工具集里留着它就在），但它派出的子代理没有角色登记，只能按该预设绑定的主代理那套面走。
+- **`studio_delegate` 只有一种入口：`tasks` 数组。** 每项 `{ agent, prompt, description? }`，派一个也写成一项数组（插件不设条数上限）。`agent` / `prompt` 这两个单发参数与 `run_in_background` 参数**都已删除**——要不要等不看参数，只看目标代理自己的**后台模式**档。
+- **整批阻不阻塞是 OR 判定**：一项「阻塞」就整批阻塞。不阻塞的那几项会被同批连坐——这是有意的取舍：一次工具调用只能交回一次结果。
+- **返回形状只剩两种，看 `kind`**：
+  - `started`：这一批**一项「阻塞」档都没有**时立刻返回。`items` 每项 `{ agent, subagentId?, description?, error? }`；每个子代理跑完由**平台逐条发结算消息**（带它的完整收尾文本）。启动失败的项没有 `subagentId`、带 `error`。
+  - `foreground-batch`：这一批**至少一项是「阻塞」档**时，整批一起启动、一起等，全部结算后返回。`results` 按输入顺序逐项 `{ agent, ok, subagentId?, description?, output?, error? }`；顶层另有 `filePath`（写成了）或 `fileError`（没写成）。
+  - 旧形状 `continuable` / `foreground` / `background-batch` **已不存在**，连同 `batchId`、汇总消息、以及「超限才转存」的兜底一起删除。
+  - **阻塞批整批一律落盘、同时全文内联**：先写成一个 `.md`（系统临时目录、按会话 id 短哈希分目录、文件名取 UTC 时间戳），再把整批正文夹进工具结果在对话里显示的那份文本——首行报行数与字符数加文件路径，末行写「全文完」；`results` 里每项的 `output` 仍是子代理的原始输出。文件里只有成功项的正文，按原序号分节。写盘失败不改形状，只是首行改报原因。这些文件不会被插件清理。
+- **启动失败逐项报**：一项没起来只让它落成失败项（`started` 里带 `error`、`foreground-batch` 里 `ok: false`），其余照常。平台活跃子代理名额到顶（`ACTIVATION_LIMIT_REACHED`）时，那一项的错误会提示把它**拆成单独一次重派**。
+- **一项都没起来**（整批都是启动失败）⇒ 整次调用直接抛第一个启动错误，不返回一张空回执。
+- **取消不做 partial**：阻塞批被取消或 PTC 超时 ⇒ 整次调用失败、**不返回部分结果**，错误文案会指你去打开面板上的「突破 PTC 120 秒限制」。不阻塞批不受影响——那些子代理已经在平台上自己跑。
+- **并行写法**：多个任务放进**一次** `tasks`。连写两行 `await` 是**串行**——那是 JavaScript 语义，不是插件限制。
 - `agent-team` 是**实验组**的团队玩法：teammate 持久存在、成员之间互相发持久消息、共享一块任务板（`team_task_*` 用 revision 做 compare-and-set）。它的 `send_message` / `interrupt_agent` / `list_agents` **取代**旧版 `dsh-tool-subagent-control` 的同名工具——两者同用时要禁用旧定义。
 
 ## 目标与计划

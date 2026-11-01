@@ -11,7 +11,14 @@
 
 // ── 配置领域模型（settings 命名空间 `agent-studio` 的形态）─────────────────────
 
-/** 子代理的后台模式：映射到派活语义。仅被当子代理时生效。 */
+/**
+ * 子代理的后台模式：映射到派活语义。仅被当子代理时生效。
+ *
+ * 现行语义是两档：`always-background` = 不阻塞派活方、`foreground` = 派活方当场阻塞等结果。
+ * `model-decides` 只剩**兼容读入**：schema 必须认它——schemastery 的 union 遇到列表外的值
+ * 直接抛 ValidationError，一个老值就能让整条 row 失效；读出时由 `readConfig()` 归一成
+ * `always-background`，界面只给两档。
+ */
 export type BackgroundMode = 'always-background' | 'foreground' | 'model-decides'
 
 /**
@@ -161,6 +168,13 @@ export interface StudioConfig {
      * 从设置里进去改配置，是这条开关存在的理由。默认 true（老盘没有这个键时按 true 读）。
      */
     mountMainPage?: boolean
+    /**
+     * PTC 模式下把 `run_code` 的程序预算抬到平台计时器上限（默认开）。
+     *
+     * 界面偏好、不是池：改成即时落盘、不进面板草稿——它一改就得立刻作用到进程里的运行时
+     * （见 `ptc-budget.ts`）。
+     */
+    ptcBreakLimit?: boolean
 }
 
 // ── 宿主 ────────────────────────────────────────────────────────────────────
@@ -195,6 +209,17 @@ export interface SettingsService {
     [key: string]: unknown
 }
 
+/** PTC 运行时里要读写的两个数字。 */
+export interface PtcBudgetConfigLike {
+    timeoutMs: number
+    maxTimeoutMs: number
+}
+
+/** 平台 PTC 运行时服务里本插件用到的面（`config` 是非公开的实例字段）。 */
+export interface PtcRuntimeService {
+    readonly config?: PtcBudgetConfigLike
+}
+
 /**
  * 插件所在的 context。
  *
@@ -209,6 +234,11 @@ export interface Ctx {
      * 自动降级要靠它抢在内置重试（`dsh-llm-retry`）之前。
      */
     on(event: string, handler: (...args: unknown[]) => void, options?: { prepend?: boolean }): void
+    /**
+     * cordis 的生命周期挂载点（`Context extends Pick<Fiber,'effect'>`）：回调里返回一个清理函数，
+     * 插件卸载时按逆序执行。用法照平台：`effect(() => { …; return dispose })`。
+     */
+    effect?(execute: () => () => void, label?: string): unknown
     inject(names: string[], callback: (ctx: Ctx) => void): void
     settings?: SettingsService
     tools?: unknown
@@ -216,6 +246,11 @@ export interface Ctx {
     /** 命令行侧的 web 启动服务；信任主机清单在它的 `trustedHosts` 上。 */
     webStartup?: unknown
     subagents?: unknown
+    /**
+     * PTC 运行时服务（`ptc-budget.ts` 那条**独占** inject 的对象）。平台只在 PTC 组合里提供它，
+     * 缺席 = 这个 profile 没有 PTC，预算那段逻辑整段静默缺席。
+     */
+    readonly ptcRuntime?: PtcRuntimeService
     fiber?: unknown
     [key: string]: unknown
 }

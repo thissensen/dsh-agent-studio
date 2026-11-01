@@ -69,10 +69,9 @@ export const zh = {
     'defaultName.skillSets': '未命名技能集',
     'defaultName.sections': '未命名段',
 
-    // ── 三档枚举 ──────────────────────────────────────────────────────────
+    // ── 枚举值（后台模式 / Agent 模式）────────────────────────────────────
     'background.always': '不阻塞',
     'background.foreground': '阻塞',
-    'background.modelDecides': 'AI 决定',
     'presentation.follow': '跟随预设',
     'presentation.native': '原生',
     'presentation.ptc': '强制 PTC',
@@ -218,6 +217,14 @@ export const zh = {
     'bar.mountMainPage': '注册到主页面',
     'bar.mountMainPageTitle': '开启时主页面显示 Agent 中心面板、左栏出现入口；关掉后左栏入口和那一页一起隐藏（主区回到会话页），在「设置 → Agent 中心」里可以随时重开。',
     'bar.mountUnavailableTitle': '重启 DSH 后生效',
+    // 「突破 PTC 120 秒限制」开关：与「注册到主页面」同一组全局开关，同样点一下直接落盘
+    'bar.ptcBreakLimit': '突破 PTC 120 秒限制',
+    'bar.ptcBreakLimitTitle': '把 PTC 模式程序的预算从 120 秒抬到平台计时器上限（约 24.8 天）。打开后写坏的死循环几乎不会自己停，只能手动中断。',
+    'bar.ptcBreakLimitHelp': [
+        '只对 PTC 模式生效，而且是进程级全局——主代理、子代理、所有 run_code 程序一起放开。',
+        '等后台 job、等嵌套工具的时间也算在这份预算里。',
+        '打开后程序预算约 24.8 天，写坏的死循环几乎不会自己停，只能手动中断。默认开是因为「阻塞」档的派活经常要等超过 120 秒。',
+    ].join('\n'),
 
     // ── 导入 / 导出弹窗（共用一棵勾选树）──────────────────────────────────
     'transfer.titleExport': '导出配置',
@@ -291,9 +298,8 @@ export const zh = {
     'agent.modelCard': '模型与后台模式',
     'agent.background': '后台模式',
     'agent.backgroundHint': [
-        '「不阻塞」：后台跑，主代理不等它，可用 send_message 追问',
-        '「阻塞」：主代理等子代理跑完再继续；两档的子代理都是可续接子会话',
-        '「AI 决定」：模型自己选「不阻塞」/「阻塞」',
+        '「不阻塞」：派出去就继续干别的；每个子代理跑完会单独发一条结算消息给你，带着它的完整输出',
+        '「阻塞」：这一批全部交付才继续；一批里只要有一项是「阻塞」，整批都当场等',
     ].join('\n'),
     'agent.children': '子代理',
     'agent.childrenHint': '给当前代理分配的子代理',
@@ -397,10 +403,9 @@ export const en: Record<CopyKey, string> = {
     'defaultName.skillSets': 'Untitled skill set',
     'defaultName.sections': 'Untitled section',
 
-    // ── Two enum rows ─────────────────────────────────────────────────────
+    // ── Enum values (background mode / agent mode) ────────────────────────
     'background.always': 'Non-blocking',
     'background.foreground': 'Blocking',
-    'background.modelDecides': 'AI decides',
     'presentation.follow': 'Follow preset',
     'presentation.native': 'Native',
     'presentation.ptc': 'Force PTC',
@@ -544,6 +549,13 @@ export const en: Record<CopyKey, string> = {
     'bar.mountMainPage': 'Register on main page',
     'bar.mountMainPageTitle': 'When on, the Agent Studio panel is shown on the main page and its entry appears in the sidebar; when off, both are hidden (the main area falls back to the conversation page) — you can reopen it any time under Settings → Agent Studio.',
     'bar.mountUnavailableTitle': 'Takes effect after restarting DSH',
+    'bar.ptcBreakLimit': 'Lift the PTC 120-second cap',
+    'bar.ptcBreakLimitTitle': 'Raises the budget of PTC programs from 120 seconds to the platform timer limit (about 24.8 days). With it on, a runaway loop will hardly ever stop by itself — you have to interrupt it.',
+    'bar.ptcBreakLimitHelp': [
+        'Applies only to PTC mode, and it is process-wide: the main agent, subagents and every run_code program are lifted together.',
+        'Time spent waiting on background jobs and on nested tools also draws from this budget.',
+        'With it on the program budget is about 24.8 days, so a broken infinite loop will hardly ever stop by itself — you have to interrupt it. It is on by default because blocking dispatches often wait more than 120 seconds.',
+    ].join('\n'),
 
     // ── Import / export dialogs (one shared checkbox tree)
     'transfer.titleExport': 'Export configuration',
@@ -613,9 +625,8 @@ export const en: Record<CopyKey, string> = {
     'agent.modelCard': 'Model and background mode',
     'agent.background': 'Background mode',
     'agent.backgroundHint': [
-        '"Non-blocking": runs in the background; the main agent does not wait and can follow up with send_message',
-        '"Blocking": the main agent waits for the subagent to finish before continuing; both modes are continuable child sessions',
-        '"AI decides": the model picks "Non-blocking" or "Blocking" itself',
+        '"Non-blocking": the call returns at once and each subagent later sends you its own settlement message with its full output',
+        '"Blocking": the call waits until every subagent in the batch is delivered; one blocking entry makes the whole batch block',
     ].join('\n'),
     'agent.children': 'Subagents',
     'agent.childrenHint': 'The subagents assigned to this agent',

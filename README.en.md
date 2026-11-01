@@ -47,7 +47,7 @@ dsh plugin --profile web add dsh-agent-studio
 Download `dsh-agent-studio-<version>.tgz` from [Releases](https://github.com/thissensen/dsh-agent-studio/releases). It is the very artifact npm serves, with the `lib/` and `client/` build output already inside — no build step:
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.1.8.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.2.0.tgz"
 ```
 
 The file can live in any directory as long as the path is right (`./` or an absolute path); swap in whatever version you actually downloaded. **Use this route for offline or air-gapped setups.**
@@ -88,7 +88,7 @@ Every screen ships in a light and a dark variant:
   <img src="assets/panel-overview-dark.png" width="49%" alt="Agent details (dark)">
 </p>
 
-> The screenshot predates 0.1.8: import / export now share one checkbox tree in the top bar, and the background modes are named non-blocking / blocking / AI decides.
+> The screenshot predates the current UI: import / export now share one checkbox tree in the top bar, and the background modes are down to two (Non-blocking / Blocking).
 
 <img src="assets/agent-detail.png" width="520" alt="A full agent detail view">
 
@@ -104,11 +104,11 @@ Every screen ships in a light and a dark variant:
 | Set libraries (left) | The three set pools: create, copy, rename, delete |
 | Details (right) | Pick a set → edit its members; pick an agent → load sets, set the model and background mode, attach subagents, toggle the snapshot switch |
 | Top bar | Preset tabs plus new / delete preset, main-agent binding, import / export (both use the same checkbox tree; the export is the draft, including unsaved changes) |
-| Bottom bar | Register on the main page, save state and save changes |
+| Bottom bar | Two switches (Register on main page / Lift the PTC 120-second cap), save state and save changes |
 
 Import picks a file first and then lets you check the items to merge into the draft; export uses the same tree to pick pools and items (**the four pools only — no preset bindings or switches**). The **"Overwrite same ids"** switch in that tree decides whether a colliding id is overwritten or fails the whole import (off by default = fail). Import only merges into the draft — nothing is written until you save.
 
-**Register on home page**: when on, the Agent Studio panel shows up on the home page and its entry appears in the left sidebar; when off, both disappear (the main area returns to the conversation page) and you can reopen it from **Settings → Agent Studio** at any time. It is a global switch, unrelated to the draft, and takes effect immediately.
+**Register on main page**: when on, the Agent Studio panel shows up on the home page and its entry appears in the left sidebar; when off, both disappear (the main area returns to the conversation page) and you can reopen it from **Settings → Agent Studio** at any time. It is a global switch, unrelated to the draft, and takes effect immediately.
 
 Before an id is renamed, the panel lists everyone referencing it, and the rename updates every reference — no dangling references are left behind.
 
@@ -154,7 +154,7 @@ Configure a chain of **fallback models** for an agent, and a failure of the prim
    - **Custom**: your own body, supporting the platform's registered `{{variable}}` interpolation. Writing a variable the platform has not registered fails that request outright.
 3. **Create a tool set** and check the tools you want to keep. `skill` is required — without it the model cannot invoke skills on its own.
 4. **Create a skill set** and check the skills to expose. Candidates are grouped by source, collapsible, and whole groups can be checked at once — opening the panel queries the official skill service right away, no message needed first.
-5. **Create an agent**: name it and write its note (when it acts as a subagent, the model picks by that note), load the sets above, pick its Agent mode (follow preset / native / force PTC) and background mode (non-blocking / blocking / AI decides). The subagent roster lives here too. Configure a chain of **fallback models** too if you want (see the section above; optional).
+5. **Create an agent**: name it and write its note (when it acts as a subagent, the model picks by that note), load the sets above, pick its Agent mode (follow preset / native / force PTC) and background mode (Non-blocking / Blocking). **Dispatch is always a batch of `tasks`** (a single dispatch is a one-entry array); whether it waits is decided by the target agent's own background mode. The subagent roster lives here too. Configure a chain of **fallback models** too if you want (see the section above; optional).
 6. **Bind** that agent to a platform preset.
 7. **Save.** Nothing is written until you press save — **don't forget it**.
 
@@ -174,7 +174,7 @@ agent-studio:
       maxRetries: 5                   # per-candidate retry bound for automatic fallback (default 5)
       fallbacks:                      # the fallback chain (possibly across providers); empty = no takeover
         - { provider: senseaudio, model: glm-5.3-flash }
-      background: foreground          # always-background | foreground | model-decides
+      background: foreground          # always-background | foreground
       toolPresentation: follow        # follow | native | ptc
       promptSets: [review-sections]   # ordered: the order here is the delivery order of sections
       toolSets: [read-only]
@@ -187,6 +187,8 @@ agent-studio:
   bindings:
     presets: [{ presetId: standard, agentId: reviewer }]   # preset → main agent
 ```
+
+The two switches in the save row correspond to two top-level keys (unrelated to the draft): `mountMainPage` (Register on main page) and `ptcBreakLimit` (Lift the PTC 120-second cap, on by default). Both are **interface preferences** — a click writes them immediately, and they never enter the panel draft.
 
 **All of these lists are arrays, not dictionaries.** The settings service merges objects recursively but replaces arrays wholesale, so with dictionaries the panel could never delete a member. The price is that id uniqueness is on us: the panel and the write endpoint both enforce it.
 
@@ -201,9 +203,23 @@ agent-studio:
 
 - **Sections cannot be rewritten under minimal-style presets.** Their persona section carries `complete: true`, meaning "this is the whole prompt, stop splicing". After the assembly waterfall returns, the platform forces the section list back to that one section, so whatever whitelist the plugin computed inside the waterfall is overwritten — that single section is always what ships. That is platform design, not a plugin defect, and since only one section was ever in play the practical loss is small. The tool and skill surfaces have no such post-processing, and `standard` / `code` / `cordis` and other regular presets behave normally.
 - **Delegation uses the plugin's own tools**: `studio_list_subagents` computes the roster live, `studio_delegate` dispatches by agent id — **only through it do a subagent's own settings (prompt / tools / skills / model) resolve to its identity and take effect**. The official `subagent` tool gets no special treatment (it is there if your tool sets keep it), but the subagents it starts are never registered, so they only ever run with the surface of the main agent bound to that preset.
-- **Identity stays exact even when several subagents are dispatched at once.** Every dispatch pre-generates the child session id *before* the call — both the wait-for-result mode and the background mode are continuable child sessions — so the session-to-agent mapping is written before the child is created. The platform's `agent/created` event does not say which dispatch triggered the creation, so the identity has to be written before the dispatch.
+- **Identity stays exact even when several subagents are dispatched at once.** Every dispatch pre-generates the child session id *before* the call — both the blocking and the non-blocking mode are resumable child sessions — so the session-to-agent mapping is written before the child is created. The platform's `agent/created` event does not say which dispatch triggered the creation, so the identity has to be written before the dispatch.
+- **There is one way to dispatch: a batch of `tasks`, and waiting depends on the targets.** `studio_delegate` has a single entry point, the `tasks` array (a single dispatch is a one-entry array): there is no single-dispatch parameter and no "run it in the background" parameter — whether the batch blocks is decided by each target agent's own **background mode**, and the test is an OR: **one Blocking entry makes the whole batch block**. The cost is that the non-blocking entries get carried along with the batch (one tool call can only hand back one result — a deliberate trade-off).
+  - **No entry blocks ⇒ `{ kind: 'started', items }`**: the call returns at once, and each subagent's finish is delivered as its own settlement message from the **platform**, carrying its full closing text. Each item is `{ agent, subagentId?, description?, error? }`; an entry that failed to start has no `subagentId` and carries an `error`.
+  - **At least one entry blocks ⇒ `{ kind: 'foreground-batch', results, filePath?, fileError? }`**: the whole batch starts together and waits together, returning once everything has settled; each item is `{ agent, ok, subagentId?, description?, output?, error? }`. The batch itself has no limit, but the platform caps how many subagents run at once (adjustable in the platform settings); entries over the cap each come back as an error telling you to **re-dispatch that one on its own**, while the rest keep running — one failure does not take the batch down.
+  - **A blocking batch's result is always written to disk and inlined in full.** The batch is written to one `.md` under the system temp directory — `<system temp>/dsh-agent-studio/<short hash of the session id>/delegate-<UTC timestamp>.md` — and that path comes back as the top-level `filePath`. The file holds the **bodies of the successful entries**, one section per original index; failed entries have no body, their reason stays in the result. The text the model sees is **header + the whole batch body + closing line**: the header carries the line and character counts plus the file path, and the closing line states the text is complete (line counts split on newlines, **blank lines included**; the plugin's runtime copy is Chinese, so those two lines read Chinese as they are). Each item's `output` still holds that subagent's raw output. When the write fails the result carries `fileError` instead, the header states the reason, and the full text is still inlined. The plugin **never cleans these files up**.
 - **Tool candidates no longer need a prior conversation.** A registered preset is activated immediately, so the panel reads that preset's current tool surface directly (`GET /tools?preset=`); only when that read fails (no tool service, broken preset) does it fall back to the per-preset on-disk observation cache.
 - **Automatic fallback only takes over when fallbacks are configured.** With no fallbacks configured the plugin never touches the request and retries behave exactly as the platform default; after takeover the retry bound comes from the plugin's config (counted per candidate).
+- **"Lift the PTC 120-second cap" is process-wide, and it is on by default.** It sits to the right of Register on main page in the save row and writes itself as soon as you click — it never enters the draft: it raises the budget of PTC-mode `run_code` programs from the default 120 seconds to the platform timer limit (about 24.8 days). Three things to remember: ① it applies only to PTC mode, and it is **process-wide** — the main agent, subagents and every program are lifted together; ② time spent waiting on background jobs and on nested tools draws from this same budget; ③ with it on, a broken infinite loop will hardly ever stop by itself — you have to interrupt it. It is on by default because Blocking dispatches often wait longer than 120 seconds.
+
+## Upgrade note: dispatch has a new shape
+
+Four breaking changes to read before you upgrade:
+
+- **An old "AI decides" now reads as Non-blocking.** Background modes are down to two (Non-blocking / Blocking); the old third value `model-decides` is read as Non-blocking — a **behavior flip**: it used to let the model decide on the spot whether to wait, and now it never waits.
+- **The "Merge subagent results" switch is gone and batching is always available.** The `mergeSubagentResults` field no longer exists; `studio_delegate` always takes a batch of `tasks`, with no switch to turn on first.
+- **The `run_in_background` parameter and the single-dispatch parameters are deleted.** `agent` / `prompt` went with it: the model must use `tasks` (a single dispatch is a one-entry array), and whether it waits depends only on each target agent's own background mode.
+- **Background batches no longer send a summary, and "spill only when too long" became "always write a file".** Background batches, `batchId` and the summary message are all gone, replaced by the platform's own **per-subagent settlement notices** — one per subagent, each carrying its full closing text. The old spill fallback (write a file only when the result was too long) is gone too: every blocking batch now writes one file and inlines the full text in the result (see Known limits).
 
 ## Layout
 
@@ -216,11 +232,15 @@ lib/                  host-half output (the package's real entry; tsc from src/h
   cache.js            on-disk cache of observations (fallback when the live `/tools` endpoint cannot be read)
   apply.js            the apply layer (main-agent assembly + subagent creation window)
   delegate.js         delegation tools + subagent identity registry (session id → agent)
+  delegate-batch.js   blocking-batch text layout and on-disk write (header/closing lines, one section per entry)
   fallback.js         automatic model fallback (candidate chain / per-candidate retries / switch notice)
   presets.js          preset management (list / copy / delete, via official services)
+  preset-registry.js  runtime registry for self-made presets (who registered, disposers, replay on restart)
+  preset-yaml.js      the YAML dialect for preset composition declarations (one definition for read and write)
   models.js           model catalog (provider / model / reasoning effort)
   attribution.js      tool source attribution (who registered it, best-effort)
   sdk-strip.js        PTC tools:sdk declaration trimming
+  ptc-budget.js       "Lift the PTC 120-second cap" (raises the PTC program budget, restores it when off)
   api.js              host-side route dispatch
   http-guard.js       HTTP request fence and response helpers
   types.js            shared types (types only, no runtime code)

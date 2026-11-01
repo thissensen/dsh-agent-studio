@@ -30,6 +30,7 @@ import { mountApply } from './apply.js'
 import { mountDelegation } from './delegate.js'
 import { mountFallback } from './fallback.js'
 import { mountApi } from './api.js'
+import { mountPtcBudget } from './ptc-budget.js'
 import { createPresetRegistry } from './preset-registry.js'
 
 export const name = 'agent-studio'
@@ -40,6 +41,11 @@ export { Config } from './config.js'
 export function apply(ctx: Ctx, config: unknown) {
     const logger: Logger = ctx.logger ?? console
     logger.info?.('[agent-studio] host 半边已挂载')
+
+    // 必须在 apply 顶层挂（不能挪进 settings 那条注入回调）：这条 inject **独占** `ptcRuntime`，
+    // 缺这个服务时整段静默缺席——正是「这个 profile 没装 PTC」该有的降级，不进日志也不报错。
+    // 开关每次现取现解包：volatile 字段是平台给的活引用，缓存下来的永远是第一次那个值。
+    mountPtcBudget(ctx, logger, () => readConfig(config).ptcBreakLimit === true)
 
     // 归因先挂：它要在工具注册**发生的那一刻**记录归属，观察层只是来读表。
     // 挂载失败只影响面板的来源分组（退化成「其他来源」），不能殃及后面的两层。

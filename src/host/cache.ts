@@ -50,7 +50,7 @@ let loaded: Record<string, CachedObservation> | null = null
  * 自检必须在第一次读盘之前把它设好（见 `scripts/verify-host.mjs`），
  * 自检绝不能往用户的真实缓存目录里写东西。
  */
-function cacheDir(): string {
+export function cacheDir(): string {
     return process.env.DSH_AGENT_STUDIO_CACHE
         ?? join(process.env.LOCALAPPDATA ?? join(homedir(), '.cache'), 'dsh-agent-studio')
 }

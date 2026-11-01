@@ -428,6 +428,12 @@ export interface SaveBarProps {
     mountDisabled: boolean
     /** 切「注册到主页面」：写 host 上的全局开关，不经草稿、不触发保存。 */
     onToggleMountMainPage: (next: boolean) => void
+    /** 「突破 PTC 120 秒限制」的当前值：没切过时用配置里的值回显。 */
+    ptcBreakLimit: boolean
+    /** 什么时候点不动：保存或别的全局开关正在飞。 */
+    ptcDisabled: boolean
+    /** 切「突破 PTC 120 秒限制」：同样写 host 上的全局开关，不经草稿、不触发保存。 */
+    onTogglePtcBreakLimit: (next: boolean) => void
     onSave: () => void
     /** 上报自身高度：左栏要按它往下让位，免得两行吸顶叠在一起。 */
     onHeightChange: (height: number) => void

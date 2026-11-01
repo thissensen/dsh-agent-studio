@@ -653,9 +653,9 @@ async function handleConfigUpdate(req: IncomingMessage, res: ServerResponse, dep
 }
 
 /**
- * 处理「主页面挂不挂面板」这个界面偏好的写操作。
+ * 处理界面偏好的写操作（主页面挂不挂面板、PTC 预算破不破 120 秒）。
  *
- * patch 里只带 `mountMainPage` 一个键：三个池与 `version` 归 `/config` 端点，混进来会让
+ * patch 里**只带调用方给了的那几个键**：三个池与 `version` 归 `/config` 端点，混进来会让
  * 一次开关切换变成一份配置快照的整体替换（数组整体替换语义），误伤用户正在编辑的池。
  *
  * @param req - Node 的请求对象。
@@ -673,7 +673,7 @@ async function handleUiUpdate(req: IncomingMessage, res: ServerResponse, deps: A
 
     // 体流是唯一会「以异常代替返回值」的一段：畸形 JSON（400）、超大 body（413）。
     // 必须就地接住——HTTP handler 就是这条链的最外层边界，漏出去响应就永远不回。
-    let body: { mountMainPage?: unknown } | undefined
+    let body: { mountMainPage?: unknown; ptcBreakLimit?: unknown } | undefined
     try {
         body = await readJsonBody(req) as typeof body
 
@@ -683,22 +683,45 @@ async function handleUiUpdate(req: IncomingMessage, res: ServerResponse, deps: A
         return
     }
 
-    // 只认真正的布尔：字符串 "true" 在合并写里会被平台当非法值拒掉，早点回人话。
     const mountMainPage = body?.mountMainPage
-    if (typeof mountMainPage !== 'boolean') {
+    const ptcBreakLimit = body?.ptcBreakLimit
+    if (mountMainPage === undefined && ptcBreakLimit === undefined) {
+        json(res, 400, { ok: false, error: '至少要给 mountMainPage 或 ptcBreakLimit 其中一项' })
+        return
+    }
+
+    // 只认真正的布尔：字符串 "true" 在合并写里会被平台当非法值拒掉，早点回人话。
+    if (mountMainPage !== undefined && typeof mountMainPage !== 'boolean') {
         json(res, 400, { ok: false, error: 'mountMainPage 必须是布尔值' })
         return
     }
 
+    if (ptcBreakLimit !== undefined && typeof ptcBreakLimit !== 'boolean') {
+        json(res, 400, { ok: false, error: 'ptcBreakLimit 必须是布尔值' })
+        return
+    }
+
+    const patch: { mountMainPage?: boolean; ptcBreakLimit?: boolean } = {}
+    if (typeof mountMainPage === 'boolean') patch.mountMainPage = mountMainPage
+    if (typeof ptcBreakLimit === 'boolean') patch.ptcBreakLimit = ptcBreakLimit
+
     try {
-        await scope.update({ mountMainPage })
+        await scope.update(patch)
 
     } catch (err) {
         json(res, 400, { ok: false, error: `写入失败：${errText(err)}` })
         return
     }
 
-    json(res, 200, { ok: true, mountMainPage })
+    // 回显口径：调用方给了的键回它给的那个值（能走到这里就说明写成功了），没给的键回配置里的
+    // 当前值。**不回读**——平台 volatile 引用不保证在 `update()` 返回那一刻已可见，回读会回旧值。
+    const 当前配置 = scope.get()
+
+    json(res, 200, {
+        ok: true,
+        mountMainPage: patch.mountMainPage ?? (当前配置.mountMainPage !== false),
+        ptcBreakLimit: patch.ptcBreakLimit ?? (当前配置.ptcBreakLimit !== false),
+    })
 }
 
 /**
@@ -766,8 +789,14 @@ export function mountApi(ctx: Ctx, logger: Logger, deps: ApiDeps): void {
 
             if (req.method === 'GET' && path === `${API_PREFIX}/ui`) {
                 // 判据是 `!== false`：scope 缺席（服务未就绪）、老盘没这个键、字段为 true
-                // 三种都算「挂」——界面偏好只在「用户明确关掉」这一个方向上有例外。
-                json(res, 200, { ok: true, mountMainPage: deps.getScope()?.get()?.mountMainPage !== false })
+                // 三种都算「开」——界面偏好只在「用户明确关掉」这一个方向上有例外。
+                const 当前配置 = deps.getScope()?.get()
+
+                json(res, 200, {
+                    ok: true,
+                    mountMainPage: 当前配置?.mountMainPage !== false,
+                    ptcBreakLimit: 当前配置?.ptcBreakLimit !== false,
+                })
                 return
             }
 

@@ -48,11 +48,23 @@ declare module '@deepseek-ai/schemastery' {
 }
 
 declare module '@deepseek-ai/dsh-tools' {
-    /** 工具的形参声明（与平台 defineTool 的 parameters 同形）。 */
+    /** 工具的形参声明（与平台 defineTool 的 parameters 同形：值 schema，可嵌套）。 */
     export interface ToolParameter {
         type: string
+        /** 该键是否必填；**只在 properties 这一层允许**（平台规则）。 */
         required?: boolean
         description?: string
+        /** 数组元素的值 schema。 */
+        items?: ToolParameter
+        /** object 的成员表；平台要求同时显式给 `additionalProperties`。 */
+        properties?: Record<string, ToolParameter>
+        additionalProperties?: boolean
+        /** 标量枚举值（平台的取值收窄）。 */
+        enum?: readonly unknown[]
+        /** 标量常量（平台的取值收窄，如 kind 的判别值）。 */
+        const?: unknown
+        /** 多分支：exactly-one 语义，至少两支。 */
+        oneOf?: ToolParameter[]
     }
 
     /** 工具被调用时拿到的执行上下文。 */

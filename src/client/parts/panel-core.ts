@@ -148,6 +148,13 @@ function PanelBody() {
     /** 切换开关的请求在飞：防重入（与 `busy` 分开，保存行各有各的禁用口径）。 */
     const [mountBusy, setMountBusy] = useState(false)
     /**
+     * 「突破 PTC 120 秒限制」的本地覆盖值：`null` = 还没在这个面板里切过，回显配置里的值。
+     * 端点成功后不回读配置（那是全局开关，一次读全量配置太重），直接用覆盖值顶住。
+     */
+    const [ptcOverride, setPtcOverride] = useState<boolean | null>(null)
+    /** 同一个开关的防重入标记（理由同上）。 */
+    const [ptcBusy, setPtcBusy] = useState(false)
+    /**
      * 每个预设的**实时**工具候选（`/tools` 端点，切到该预设时拉一次）。
      * 与观察缓存分开存：一个是平台此刻的面，一个是装配期采的副本，界面上取并集。
      */
@@ -795,6 +802,26 @@ function PanelBody() {
         }
     }
 
+    /**
+     * 切「突破 PTC 120 秒限制」。与「注册到主页面」同一套写法：写的是 host 上的
+     * **全局开关**，不进草稿、不触发保存，直接打端点；成功才回填覆盖值，失败落进动作提示条。
+     */
+    async function togglePtcBreakLimit(next: boolean): Promise<void> {
+        setPtcBusy(true)
+
+        try {
+            await postJson(ENDPOINTS.ui, { ptcBreakLimit: next })
+            setPtcOverride(next)
+            setActionState({ status: 'idle' })
+
+        } catch (err) {
+            setActionState({ status: 'failed', message: (err as Error).message })
+
+        } finally {
+            setPtcBusy(false)
+        }
+    }
+
     // ── 渲染 ────────────────────────────────────────────────────────────
 
     if (viewState.status === 'loading') {
@@ -833,6 +860,10 @@ function PanelBody() {
     }
 
     const mountDisabled = mountBridge.available === false || mountBridge.ready === false || busy || mountBusy
+
+    // 「突破 PTC 120 秒限制」：老盘没有这个键 ⇒ 按开读（默认开，见字典里那条说明）。
+    const ptcOn = ptcOverride ?? (viewState.config?.ptcBreakLimit !== false)
+    const ptcDisabled = busy || ptcBusy
 
     const observation = observationFor(viewState, selectedPresetId)
     // 工具候选 = 实时读数 ∪ 观察缓存 ∪ 已勾（已勾由 `toolRowsFor` 兜）；段与变量仍只来自观察，
@@ -1005,6 +1036,9 @@ function PanelBody() {
             mountAvailable: mountBridge.available,
             mountDisabled,
             onToggleMountMainPage: toggleMountMainPage,
+            ptcBreakLimit: ptcOn,
+            ptcDisabled,
+            onTogglePtcBreakLimit: togglePtcBreakLimit,
             onSave: saveDraft,
             onHeightChange: setSaveBarHeight,
         }),
