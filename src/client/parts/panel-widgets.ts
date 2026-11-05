@@ -8,7 +8,8 @@ import { createPortal } from 'react-dom'
 import type { ReactElement, ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, useAnchoredPosition } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CopyKey, Translate } from '../locales'
-import type { BackgroundMode, ToolPresentation } from '../../host/types'
+import type { BackgroundMode } from '../../host/types'
+import type { PresetPresentation } from '../../host/preset-presentation'
 import {
     STYLE,
     FIELD_LABEL,
@@ -47,12 +48,19 @@ export const BACKGROUND_MODES: { id: BackgroundMode; labelKey: CopyKey }[] = [
     { id: 'foreground', labelKey: 'background.foreground' },
 ]
 
-/** Agent 模式三档（id 与 host 侧 `TOOL_PRESENTATIONS` 同一套；文案见字典）。 */
-export const TOOL_PRESENTATIONS: { id: ToolPresentation; labelKey: CopyKey }[] = [
-    { id: 'follow', labelKey: 'presentation.follow' },
-    { id: 'native', labelKey: 'presentation.native' },
-    { id: 'ptc', labelKey: 'presentation.ptc' },
+/** 预设呈现方式三档（id 与 host 侧的 `PresetPresentation` 同一套；文案见字典）。 */
+export const PRESET_PRESENTATIONS: { id: PresetPresentation; labelKey: CopyKey }[] = [
+    { id: 'inherit', labelKey: 'preset.presentation.inherit' },
+    { id: 'native', labelKey: 'preset.presentation.native' },
+    { id: 'ptc', labelKey: 'preset.presentation.ptc' },
 ]
+
+/** 某一档的文案：菜单锚点、菜单项与动作提示条共用这张表，映射只写一份。 */
+export function presentationLabel(mode: PresetPresentation, t: Translate): string {
+    const option = PRESET_PRESENTATIONS.find((candidate) => candidate.id === mode)!
+
+    return t(option.labelKey)
+}
 
 /** 把带 `labelKey` 的选项表翻成 `Choice` 要的 `label`。 */
 export function choiceOptions<T extends string>(options: { id: T; labelKey: CopyKey }[], t: Translate): { id: T; label: string }[] {

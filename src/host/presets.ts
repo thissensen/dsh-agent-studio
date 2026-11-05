@@ -1,5 +1,5 @@
 /**
- * 预设管理：列出平台上的预设、从一份已有预设新建、删除本插件建的。
+ * 预设管理：列出平台上的预设、从一份已有预设新建、改自建预设的工具呈现方式、删除本插件建的。
  *
  * 全部走官方服务（`ctx.get('agentPresets')`）——**插件不自己写预设文件**。
  *
@@ -25,6 +25,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import { json, readJsonBody, validateMutationRequest } from './http-guard.js'
+import { readPresentation, writePresentation } from './preset-presentation.js'
+import type { PresentationFacts, PresetPresentation } from './preset-presentation.js'
 import type { PresetRegistry } from './preset-registry.js'
 import { parsePlugins, stringifyPlugins } from './preset-yaml.js'
 import type { PresetBinding, PresetDefinitionConfig, PresetPluginRow, SettingsScope, StudioConfig } from './types.js'
@@ -96,6 +98,24 @@ interface PresetRow {
     promptFixed: boolean
     /** 运行时快照是否被预设自己关掉（`includeRuntimeContext: false`）——快照开关据此禁用。 */
     snapshotFixed: boolean
+    /** 当前工具呈现方式；读不出来或畸形时一律 `inherit`（原因见 `presentationProblem`）。 */
+    presentation: PresetPresentation
+    /** 命中的是旧写法（`dsh-agent-tool-presentation` + `mode`）——点任意档会给它换成新写法。 */
+    presentationLegacy: boolean
+    /** 这份构成让不让插件改呈现方式；**与 `writable`（归属判据）是两个维度**。 */
+    presentationEditable: boolean
+    /** 改不了的原因（中文，可直接展示）；可改时也可能带一句提示（如当前行被停用）。 */
+    presentationProblem: string | null
+}
+
+/** 读一份预设的构成声明得到的事实：两个 persona 开关 + 呈现方式四个键。 */
+interface PresetFacts {
+    promptFixed: boolean
+    snapshotFixed: boolean
+    presentation: PresetPresentation
+    presentationLegacy: boolean
+    presentationEditable: boolean
+    presentationProblem: string | null
 }
 
 /**
@@ -104,31 +124,40 @@ interface PresetRow {
 const PRESET_ID = /^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/
 
 /**
- * 读一个预设的构成声明，看它的 persona 声明了哪两个开关。
+ * 读一份预设的构成声明，一次问出面板要的全部事实：两个 persona 开关 + 呈现方式。
  *
- * **为什么要读它**（2026-09-18 查证）：平台不给这个信息。`compositionInventory()`
+ * **为什么要读它**（2026-09-18 查证）：平台不给这些信息。`compositionInventory()`
  * 的行只有 `entryId / moduleName / enabled / condition`（**不含 config**），预设行本身
  * 只有 name / description / order；而 4 个官方预设（`cordis` / `minimal` / `ptc` /
  * `standard`）**全都**用 `dsh-persona`，拿模块名当判据必然 4/4 误报。
  * 0.1.7 起读法是 `readDocument(id)` 返回的 entry-list YAML 文本（只读，不再需要
  * 自己去猜预设目录路径——那条路连同 `list()` 的 `path` 一起被平台收回了）。
  *
- * **只做检测、不做完整解析**：定位 `dsh-persona` 的 `name:` 行，往下扫到下一个缩进不深
- * 于它的 `name:` 行为止（嵌套 group 里的 `name:` 缩得更深，不会误截），看这一段里有没有
- * 那两个键。判错只影响界面灰不灰，不影响装配，够用即可。
+ * **一次读取产全部事实**：呈现方式与 persona 开关同一份文本就能看，分开读等于每行多一次 IO。
+ * 呈现方式走 `parsePlugins()` + `readPresentation()`，与写端共用同一份方言。
  *
- * 读不到就都当 `false`（= 不禁用界面）：宁可少灰一层，也不能让面板报错。
+ * persona 那两个开关**只做检测、不做完整解析**：定位 `dsh-persona` 的 `name:` 行，往下扫到
+ * 下一个缩进不深于它的 `name:` 行为止（嵌套 group 里的 `name:` 缩得更深，不会误截），看这
+ * 一段里有没有那两个键。判错只影响界面灰不灰，不影响装配，够用即可。
+ *
+ * 读不到或解析失败一律走兜底（persona 两个开关 false、呈现方式不可改）：宁可少灰一层，
+ * 也不能让整份清单端点报错。
  *
  * @param service - 预设服务。
  * @param presetId - 预设 id。
- * @returns 两个开关；读不到文本或找不到 `dsh-persona` 时都是 `false`。
+ * @returns 六个事实；读不到文本或解析失败时是兜底值。
  */
-async function readPersonaFlags(
-    service: PresetService,
-    presetId: string,
-): Promise<{ promptFixed: boolean; snapshotFixed: boolean }> {
-    const off = { promptFixed: false, snapshotFixed: false }
-    if (service.readDocument === undefined) return off
+async function readPresetFacts(service: PresetService, presetId: string): Promise<PresetFacts> {
+    const 兜底: PresetFacts = {
+        promptFixed: false,
+        snapshotFixed: false,
+        presentation: 'inherit',
+        presentationLegacy: false,
+        presentationEditable: false,
+        presentationProblem: '读不到这份预设的构成声明',
+    }
+
+    if (service.readDocument === undefined) return 兜底
 
     let content: unknown
     try {
@@ -136,10 +165,28 @@ async function readPersonaFlags(
 
     } catch {
         // 读不出来（预设破损、权限）只影响界面灰不灰，不能让它冒到清单端点上。
-        return off
+        return 兜底
     }
 
-    if (typeof content !== 'string') return off
+    if (typeof content !== 'string') return 兜底
+
+    let 呈现: PresentationFacts
+    try {
+        呈现 = readPresentation(parsePlugins(content, `预设「${presetId}」`))
+
+    } catch {
+        // 解析不出来就不知道这份构成里有什么，呈现方式只能按「不可改」兜底。
+        return 兜底
+    }
+
+    const 事实: PresetFacts = {
+        promptFixed: false,
+        snapshotFixed: false,
+        presentation: 呈现.presentation,
+        presentationLegacy: 呈现.legacy,
+        presentationEditable: 呈现.editable,
+        presentationProblem: 呈现.problem,
+    }
 
     const lines = content.split('\n')
     const NAME_LINE = /^(\s*)name:\s*(.+?)\s*$/
@@ -149,20 +196,19 @@ async function readPersonaFlags(
         if (hit === null || hit[2].includes('dsh-persona') !== true) continue
 
         const indent = hit[1].length
-        const flags = { ...off }
 
         for (let j = i + 1; j < lines.length; j += 1) {
             const sibling = NAME_LINE.exec(lines[j])
             if (sibling !== null && sibling[1].length <= indent) break
 
-            if (/^\s*complete:\s*true\s*$/.test(lines[j]) === true) flags.promptFixed = true
-            if (/^\s*includeRuntimeContext:\s*false\s*$/.test(lines[j]) === true) flags.snapshotFixed = true
+            if (/^\s*complete:\s*true\s*$/.test(lines[j]) === true) 事实.promptFixed = true
+            if (/^\s*includeRuntimeContext:\s*false\s*$/.test(lines[j]) === true) 事实.snapshotFixed = true
         }
 
-        return flags
+        break
     }
 
-    return off
+    return 事实
 }
 
 /**
@@ -180,7 +226,7 @@ export async function listPresets(service: PresetService | undefined, created: P
 
     for (const preset of presets) {
         const ours = mine.has(preset.id)
-        const flags = await readPersonaFlags(service, preset.id)
+        const facts = await readPresetFacts(service, preset.id)
 
         rows.push({
             id: preset.id,
@@ -190,8 +236,12 @@ export async function listPresets(service: PresetService | undefined, created: P
             broken: preset.broken ?? null,
             source: ours ? 'plugin' : 'shipped',
             writable: ours,
-            promptFixed: flags.promptFixed,
-            snapshotFixed: flags.snapshotFixed,
+            promptFixed: facts.promptFixed,
+            snapshotFixed: facts.snapshotFixed,
+            presentation: facts.presentation,
+            presentationLegacy: facts.presentationLegacy,
+            presentationEditable: facts.presentationEditable,
+            presentationProblem: facts.presentationProblem,
         })
     }
 
@@ -447,4 +497,97 @@ export async function handleDeletePreset(req: IncomingMessage, res: ServerRespon
     }
 
     json(res, 200, { ok: true })
+}
+
+/**
+ * 写端点：改一份自建预设的工具呈现方式（继承部署默认 / 原生 / PTC）。
+ *
+ * 落点就是预设 `plugins` 里那条执行器行——平台按 scope 链就近选执行器，预设 standing
+ * scope 里挂哪一条就是哪一档（见 `preset-presentation.ts`）。改档**必须先注销再注册**：
+ * 平台对同 id 直接抛 `Duplicate agent preset`，所以交给注册表的 `replace()`。
+ * 活会话仍绑在旧 revision 上，改档只对之后新建 / 重绑的会话生效。
+ *
+ * @param req - Node 的请求对象。
+ * @param res - Node 的响应对象。
+ * @param deps - `{ getPresets, getScope, getRegistry, trustedHosts, bindHost }`。
+ */
+export async function handleSetPresetPresentation(req: IncomingMessage, res: ServerResponse, deps: PresetDeps): Promise<void> {
+    const requestError = validateMutationRequest(req, deps.trustedHosts, deps.bindHost)
+    if (requestError !== null) {
+        json(res, requestError.statusCode, { ok: false, error: requestError.error })
+        return
+    }
+
+    const service = deps.getPresets() as PresetService | undefined
+    const registry = deps.getRegistry?.()
+
+    if (service?.readDocument === undefined || service.register === undefined || registry === undefined) {
+        json(res, 503, { ok: false, error: '预设服务未就绪，暂时不能改呈现方式' })
+        return
+    }
+
+    const body = await readJsonBody(req)
+    const presetId = typeof body?.id === 'string' ? body.id : ''
+    if (presetId === '') {
+        json(res, 400, { ok: false, error: '缺少 id' })
+        return
+    }
+
+    const 档位 = body?.presentation
+    if (档位 !== 'inherit' && 档位 !== 'native' && 档位 !== 'ptc') {
+        json(res, 400, { ok: false, error: 'presentation 只能是 inherit / native / ptc' })
+        return
+    }
+
+    // 判据与删除端点同源：定义在插件配置里才是本插件建的，官方预设碰不得。
+    const 旧定义 = (deps.getScope()?.get()?.createdPresets ?? []).find((定义) => 定义?.id === presetId)
+    if (旧定义 === undefined) {
+        json(res, 400, { ok: false, error: `「${presetId}」不是本插件建的预设，改不了` })
+        return
+    }
+
+    let 行组: PresetPluginRow[]
+    try {
+        const content = (await service.readDocument(presetId))?.content
+        if (typeof content !== 'string') throw new Error('构成声明读不出来')
+
+        行组 = parsePlugins(content, `预设「${presetId}」`)
+
+    } catch (err) {
+        json(res, 400, { ok: false, error: `读取预设「${presetId}」的构成声明失败：${reasonOf(err)}` })
+        return
+    }
+
+    const 当前事实 = readPresentation(行组)
+    if (!当前事实.editable) {
+        // 409 而非 400：请求本身没毛病，是这份构成不让插件动。
+        json(res, 409, { ok: false, error: 当前事实.problem ?? '这份构成不让插件改呈现方式' })
+        return
+    }
+
+    let 结果: { 行组: PresetPluginRow[]; changed: boolean }
+    try {
+        结果 = writePresentation(行组, 档位)
+
+    } catch (err) {
+        json(res, 400, { ok: false, error: `改预设呈现方式失败：${reasonOf(err)}` })
+        return
+    }
+
+    if (!结果.changed) {
+        json(res, 200, { ok: true, id: presetId, presentation: 档位, changed: false })
+        return
+    }
+
+    const 定义: PresetDefinitionConfig = { ...旧定义, presetYaml: stringifyPlugins(结果.行组) }
+
+    try {
+        await registry.replace(定义, (patch) => deps.getScope().update(patch))
+
+    } catch (err) {
+        json(res, 400, { ok: false, error: `改预设呈现方式失败：${reasonOf(err)}` })
+        return
+    }
+
+    json(res, 200, { ok: true, id: presetId, presentation: 档位, changed: true })
 }

@@ -42,7 +42,6 @@ import type {
     SectionConfig,
     SkillSetConfig,
     StudioConfig,
-    ToolPresentation,
     ToolSetConfig,
 } from './types.js'
 
@@ -78,9 +77,6 @@ const ModelSchema = z.object({
  */
 export const BACKGROUND_MODES = ['always-background', 'foreground', 'model-decides'] as const satisfies readonly BackgroundMode[]
 
-/** Agent 模式三档：跟随预设（默认）/ 原生 / 强制 PTC。 */
-export const TOOL_PRESENTATIONS = ['follow', 'native', 'ptc'] as const satisfies readonly ToolPresentation[]
-
 /** 自动降级的默认重试上限：与平台默认策略（dsh-llm 的 `maxRetries`）对齐。 */
 export const DEFAULT_MAX_RETRIES = 5
 
@@ -105,8 +101,6 @@ const AgentSchema = z.object({
     fallbacks: z.array(ModelSchema).default([]),
     /** 新建代理直接落在「不阻塞」档：`model-decides` 只作老配置的兼容读入（见 `BACKGROUND_MODES`）。 */
     background: z.union(BACKGROUND_MODES).default('always-background'),
-    /** Agent 模式：`follow` = 跟随预设（不声明）；`native`/`ptc` = 本 agent 强制（各 agent 独立）。 */
-    toolPresentation: z.union(TOOL_PRESENTATIONS).default('follow'),
     /** 已装提示词集，**有序**——集在列表里的顺序就是它的段在投递清单里的顺序。 */
     promptSets: z.array(z.string()).default([]),
     /** 已装工具集。装了 = 工具面收窄到并集；一个没装 = 不干预（全给）。 */

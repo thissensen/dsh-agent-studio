@@ -11,7 +11,7 @@ A visual configuration plugin for [DeepSeek Harness](https://github.com/deepseek
 
 Every turn, the model sees three things: the **system prompt**, the **tool catalog**, and the **skill catalog**. The more plugins, tools and MCP servers you install, the bigger those three get, and the worse the model performs. On top of that, DSH's subagent configuration is bare-bones: there is no easy way to give a subagent its own prompt, tools, skills, model or reasoning effort.
 
-This plugin fixes both. It turns an agent into bricks you can assemble freely: prompt, tools, skills, model. **Subagents get the same treatment**, presets can be created on the spot, and official PTC mode is supported. A fallback chain may span providers.
+This plugin fixes both. It turns an agent into bricks you can assemble freely: prompt, tools, skills, model. **Subagents get the same treatment**, presets can be created on the spot, and how tools are presented is a per-preset choice of three modes (deployment default / native / PTC), switched right in the top bar. A fallback chain may span providers.
 
 Its configuration **lives in the plugin's own data**, it leaves the host's existing presets untouched, and uninstalling restores everything.
 
@@ -26,7 +26,7 @@ It pairs well with [dsh-context](https://github.com/bowenliang123/dsh-context), 
 | Many skills, no good way to manage them | Every `modelInvocable` skill enters the catalog | Check the ones you want; the model can't see the rest |
 | A runtime snapshot is pushed into every step | Injected by the platform, with no switch | A per-agent switch — turn the optional part off and stop paying for it |
 | Subagents can only inherit the parent wholesale, eating a lot of context | The official `subagent` has no entry identity and no per-role trimming | Configure each subagent on its own: model / prompt / tools / skills / background mode |
-| Subagents created under PTC are PTC too | The platform inherits the parent's mode | You decide whether a subagent runs native or PTC |
+| Subagent execution mode is hard to pin down | The platform follows the executor row mounted in the preset; the panel offers no choice | A subagent's execution mode is decided by its own preset (platform mechanism); switch three modes per preset in the panel |
 | Different jobs want different prompts, tools and skills, and switching is a chore | A preset only swaps the prompt; tools and skills stay one global set | Switch the agent bound to that preset, and you're done |
 | A local model is short on context and barely lasts a few turns | You cannot clear the prompt out entirely; you have to hand-build a preset | Create an agent with nothing loaded and bind it to the preset — a truly empty prompt |
 | The primary model gets rate-limited or goes down, and the whole turn fails | Retries within one provider up to a limit, then gives up | Configure a chain of fallback models (possibly across providers); failures move down the chain (optional) |
@@ -47,7 +47,7 @@ dsh plugin --profile web add dsh-agent-studio
 Download `dsh-agent-studio-<version>.tgz` from [Releases](https://github.com/thissensen/dsh-agent-studio/releases). It is the very artifact npm serves, with the `lib/` and `client/` build output already inside — no build step:
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.2.0.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.2.1.tgz"
 ```
 
 The file can live in any directory as long as the path is right (`./` or an absolute path); swap in whatever version you actually downloaded. **Use this route for offline or air-gapped setups.**
@@ -84,7 +84,7 @@ Nothing is left behind in the host configuration. The presets were never touched
 Every screen ships in a light and a dark variant:
 
 <p align="center">
-  <img src="assets/panel-overview-light.png" width="49%" alt="Agent details: preset binding, agent identity and agent mode">
+  <img src="assets/panel-overview-light.png" width="49%" alt="Agent details: preset binding and agent identity">
   <img src="assets/panel-overview-dark.png" width="49%" alt="Agent details (dark)">
 </p>
 
@@ -100,10 +100,10 @@ Every screen ships in a light and a dark variant:
 
 | Area | What it does |
 | --- | --- |
-| Agent pool (left) | One row per agent: bound preset, loaded sets, Agent mode, subagent roster |
+| Agent pool (left) | One row per agent: bound preset, loaded sets, subagent roster |
 | Set libraries (left) | The three set pools: create, copy, rename, delete |
 | Details (right) | Pick a set → edit its members; pick an agent → load sets, set the model and background mode, attach subagents, toggle the snapshot switch |
-| Top bar | Preset tabs plus new / delete preset, main-agent binding, import / export (both use the same checkbox tree; the export is the draft, including unsaved changes) |
+| Top bar | Preset tabs plus new / delete preset, preset presentation, main-agent binding, import / export (both use the same checkbox tree; the export is the draft, including unsaved changes) |
 | Bottom bar | Two switches (Register on main page / Lift the PTC 120-second cap), save state and save changes |
 
 Import picks a file first and then lets you check the items to merge into the draft; export uses the same tree to pick pools and items (**the four pools only — no preset bindings or switches**). The **"Overwrite same ids"** switch in that tree decides whether a colliding id is overwritten or fails the whole import (off by default = fail). Import only merges into the draft — nothing is written until you save.
@@ -118,7 +118,7 @@ Four kinds of configuration objects, each minding its own business, referencing 
 
 | Pool | What it is for |
 | --- | --- |
-| **Agents** | Which preset it binds to; Agent mode (follow preset / native / force PTC), prompt, tools, skills, subagent roster — plus the model and reasoning effort to use when it acts as a subagent |
+| **Agents** | Which preset it binds to; prompt, tools, skills, subagent roster — plus the model and reasoning effort to use when it acts as a subagent |
 | **Prompt sets** `promptSets` | An ordered list of prompts; you set the order |
 | **Tool sets** `toolSets` | Tool names — both plugin tools and MCP tools |
 | **Skill sets** `skillSets` | A skill list deciding which ones the model may invoke on its own |
@@ -154,7 +154,7 @@ Configure a chain of **fallback models** for an agent, and a failure of the prim
    - **Custom**: your own body, supporting the platform's registered `{{variable}}` interpolation. Writing a variable the platform has not registered fails that request outright.
 3. **Create a tool set** and check the tools you want to keep. `skill` is required — without it the model cannot invoke skills on its own.
 4. **Create a skill set** and check the skills to expose. Candidates are grouped by source, collapsible, and whole groups can be checked at once — opening the panel queries the official skill service right away, no message needed first.
-5. **Create an agent**: name it and write its note (when it acts as a subagent, the model picks by that note), load the sets above, pick its Agent mode (follow preset / native / force PTC) and background mode (Non-blocking / Blocking). **Dispatch is always a batch of `tasks`** (a single dispatch is a one-entry array); whether it waits is decided by the target agent's own background mode. The subagent roster lives here too. Configure a chain of **fallback models** too if you want (see the section above; optional).
+5. **Create an agent**: name it and write its note (when it acts as a subagent, the model picks by that note), load the sets above, pick its background mode (Non-blocking / Blocking). **Presentation is switched per preset in the top bar**, not here. **Dispatch is always a batch of `tasks`** (a single dispatch is a one-entry array); whether it waits is decided by the target agent's own background mode. The subagent roster lives here too. Configure a chain of **fallback models** too if you want (see the section above; optional).
 6. **Bind** that agent to a platform preset.
 7. **Save.** Nothing is written until you press save — **don't forget it**.
 
@@ -175,7 +175,6 @@ agent-studio:
       fallbacks:                      # the fallback chain (possibly across providers); empty = no takeover
         - { provider: senseaudio, model: glm-5.3-flash }
       background: foreground          # always-background | foreground
-      toolPresentation: follow        # follow | native | ptc
       promptSets: [review-sections]   # ordered: the order here is the delivery order of sections
       toolSets: [read-only]
       skillSets: [review-skills]
@@ -194,8 +193,8 @@ The two switches in the save row correspond to two top-level keys (unrelated to 
 
 ## Compatibility
 
-- **Target environment**: the pure web build of DSH (`dsh --profile web`). Community desktop builds currently ship platform `0.2.0-rc.2`, which is **below this plugin's minimum** — install the older `dsh-agent-studio@0.1.5` there.
-- **Host services it depends on**: seven platform packages are listed in `peerDependencies` **with version ranges** (`>=0.2.1-alpha.2`, the same range as `engines.dsh`) — that is what the plugin market and the platform use to decide whether the plugin may be installed: an old DSH gets the update blocked and the bundle skipped at startup instead of ending up with a plugin that will not start. Only `schemastery` is optional. The floor is the **minimum version for full functionality** — delegation needs `subagents.startActivation()`, which exists only from `0.2.1-alpha.2`.
+- **Target environment**: the pure web build (`dsh --profile web`) and the desktop build (`dsh --profile desktop`) both work — the desktop app is the web build plus an Electron shell, so the host half is identical and the platform version requirement is the same.
+- **Host services it depends on**: seven platform packages are listed in `peerDependencies` **with version ranges** (`>=0.2.2-rc.1`, the same range as `engines.dsh`) — that is what the plugin market and the platform use to decide whether the plugin may be installed: an old DSH gets the update blocked and the bundle skipped at startup instead of ending up with a plugin that will not start. Only `schemastery` is optional. The floor is the **minimum version for full functionality**: presentation and the tool surface follow the 0.2.2 platform contracts. The two tool executor packages (`-native` / `-ptc`) stay out of `peerDependencies` — the plugin only writes executor rows into preset compositions and never imports them.
 - **Interface language and theme** follow the platform; Chinese and English copy ship with it, and both dark and light themes are supported.
 - **The client half has no build step**: `client/index.js` is the shell (loaded at startup) and `client/parts/panel.js` is the panel (served on demand by a host route).
 
@@ -206,11 +205,20 @@ The two switches in the save row correspond to two top-level keys (unrelated to 
 - **Identity stays exact even when several subagents are dispatched at once.** Every dispatch pre-generates the child session id *before* the call — both the blocking and the non-blocking mode are resumable child sessions — so the session-to-agent mapping is written before the child is created. The platform's `agent/created` event does not say which dispatch triggered the creation, so the identity has to be written before the dispatch.
 - **There is one way to dispatch: a batch of `tasks`, and waiting depends on the targets.** `studio_delegate` has a single entry point, the `tasks` array (a single dispatch is a one-entry array): there is no single-dispatch parameter and no "run it in the background" parameter — whether the batch blocks is decided by each target agent's own **background mode**, and the test is an OR: **one Blocking entry makes the whole batch block**. The cost is that the non-blocking entries get carried along with the batch (one tool call can only hand back one result — a deliberate trade-off).
   - **No entry blocks ⇒ `{ kind: 'started', items }`**: the call returns at once, and each subagent's finish is delivered as its own settlement message from the **platform**, carrying its full closing text. Each item is `{ agent, subagentId?, description?, error? }`; an entry that failed to start has no `subagentId` and carries an `error`.
-  - **At least one entry blocks ⇒ `{ kind: 'foreground-batch', results, filePath?, fileError? }`**: the whole batch starts together and waits together, returning once everything has settled; each item is `{ agent, ok, subagentId?, description?, output?, error? }`. The batch itself has no limit, but the platform caps how many subagents run at once (adjustable in the platform settings); entries over the cap each come back as an error telling you to **re-dispatch that one on its own**, while the rest keep running — one failure does not take the batch down.
-  - **A blocking batch's result is always written to disk and inlined in full.** The batch is written to one `.md` under the system temp directory — `<system temp>/dsh-agent-studio/<short hash of the session id>/delegate-<UTC timestamp>.md` — and that path comes back as the top-level `filePath`. The file holds the **bodies of the successful entries**, one section per original index; failed entries have no body, their reason stays in the result. The text the model sees is **header + the whole batch body + closing line**: the header carries the line and character counts plus the file path, and the closing line states the text is complete (line counts split on newlines, **blank lines included**; the plugin's runtime copy is Chinese, so those two lines read Chinese as they are). Each item's `output` still holds that subagent's raw output. When the write fails the result carries `fileError` instead, the header states the reason, and the full text is still inlined. The plugin **never cleans these files up**.
+  - **At least one entry blocks ⇒ `{ kind: 'foreground-batch', results, filePath?, fileError? }`**: the whole batch starts together and waits together, returning once everything has settled; each item is `{ agent, ok, subagentId?, description?, error? }`. The batch itself has no limit, but the platform caps how many subagents run at once (adjustable in the platform settings); entries over the cap each come back as an error telling you to **re-dispatch that one on its own**, while the rest keep running — one failure does not take the batch down.
+  - **A blocking batch's result is always written to disk; the conversation keeps one line pointing at it.** The batch is written to one `.md` under the system temp directory — `<system temp>/dsh-agent-studio/<short hash of the session id>/delegate-<UTC timestamp>.md` — and that path comes back as the top-level `filePath`. The file holds the **bodies of the successful entries**, one section per original index; failed entries have no body, their reason stays in the result. What the model sees in the conversation is that one path line: `本批结果已写入：<path>（共 N 项：M 成功 · K 失败）` (the plugin's runtime copy is Chinese, so the line itself reads Chinese), plus one line per failed entry (`【index】agent (name) — label · 失败 · reason`), and one more line `子代理：【index】<id>、…` listing every subagent session of this batch you can keep talking to (entries that failed to start have no id and stay off that line). **Bodies never enter the conversation** — read the file by that path if you need them; `results` never carries the bodies either (not even when the write fails). When the write fails the result carries `fileError` instead and that line reports the reason: `文件没写成（<reason>）（共 N 项：M 成功 · K 失败）`. The plugin **never cleans these files up**.
 - **Tool candidates no longer need a prior conversation.** A registered preset is activated immediately, so the panel reads that preset's current tool surface directly (`GET /tools?preset=`); only when that read fails (no tool service, broken preset) does it fall back to the per-preset on-disk observation cache.
 - **Automatic fallback only takes over when fallbacks are configured.** With no fallbacks configured the plugin never touches the request and retries behave exactly as the platform default; after takeover the retry bound comes from the plugin's config (counted per candidate).
 - **"Lift the PTC 120-second cap" is process-wide, and it is on by default.** It sits to the right of Register on main page in the save row and writes itself as soon as you click — it never enters the draft: it raises the budget of PTC-mode `run_code` programs from the default 120 seconds to the platform timer limit (about 24.8 days). Three things to remember: ① it applies only to PTC mode, and it is **process-wide** — the main agent, subagents and every program are lifted together; ② time spent waiting on background jobs and on nested tools draws from this same budget; ③ with it on, a broken infinite loop will hardly ever stop by itself — you have to interrupt it. It is on by default because Blocking dispatches often wait longer than 120 seconds.
+- **Under native presentation, `subagent` / `list_subagent_models` show up in the tool declarations again.** Both are registered on the agent's own layer, which `restrict()` deliberately cannot reach, and declaration-level trimming has no hook in 0.2.2 — a guard rejects the call instead: the model can see them but cannot call them. Under PTC they are trimmed out of the `tools:sdk` body, so this does not happen.
+
+## Upgrading from the previous release
+
+- **Only DSH `0.2.2-rc.1` and above is supported** — there is no compatibility branch for older platforms.
+- **Upgrade the platform first, then the plugin**: when the plugin's floor is above the platform you run, the startup gate skips the whole bundle — the plugin looks gone rather than crashing.
+- **The per-agent presentation switch is gone**: the old `toolPresentation` key no longer takes effect, and you do not have to clean it up by hand.
+- **Presentation is now per preset, in three modes** (deployment default / native / PTC), switched from the top bar; a change applies only to sessions created or re-bound afterwards.
+- **Old declarations are recognised**: a preset that declares its presentation through `@deepseek-ai/dsh-agent-tool-presentation` is labelled "Native (legacy form)" / "PTC (legacy form)"; picking a new mode once rewrites it to the current form, and picking "Deployment default" removes every presentation row of that preset, legacy or current.
 
 ## Upgrade note: dispatch has a new shape
 
@@ -219,7 +227,7 @@ Four breaking changes to read before you upgrade:
 - **An old "AI decides" now reads as Non-blocking.** Background modes are down to two (Non-blocking / Blocking); the old third value `model-decides` is read as Non-blocking — a **behavior flip**: it used to let the model decide on the spot whether to wait, and now it never waits.
 - **The "Merge subagent results" switch is gone and batching is always available.** The `mergeSubagentResults` field no longer exists; `studio_delegate` always takes a batch of `tasks`, with no switch to turn on first.
 - **The `run_in_background` parameter and the single-dispatch parameters are deleted.** `agent` / `prompt` went with it: the model must use `tasks` (a single dispatch is a one-entry array), and whether it waits depends only on each target agent's own background mode.
-- **Background batches no longer send a summary, and "spill only when too long" became "always write a file".** Background batches, `batchId` and the summary message are all gone, replaced by the platform's own **per-subagent settlement notices** — one per subagent, each carrying its full closing text. The old spill fallback (write a file only when the result was too long) is gone too: every blocking batch now writes one file and inlines the full text in the result (see Known limits).
+- **Background batches no longer send a summary, and "spill only when too long" became "always write a file".** Background batches, `batchId` and the summary message are all gone, replaced by the platform's own **per-subagent settlement notices** — one per subagent, each carrying its full closing text. The old spill fallback (write a file only when the result was too long) is gone too: every blocking batch now writes one file, and the conversation keeps only the path line, the subagent line and the list of failed entries (see Known limits).
 
 ## Layout
 
@@ -232,11 +240,12 @@ lib/                  host-half output (the package's real entry; tsc from src/h
   cache.js            on-disk cache of observations (fallback when the live `/tools` endpoint cannot be read)
   apply.js            the apply layer (main-agent assembly + subagent creation window)
   delegate.js         delegation tools + subagent identity registry (session id → agent)
-  delegate-batch.js   blocking-batch text layout and on-disk write (header/closing lines, one section per entry)
+  delegate-batch.js   blocking-batch path line and on-disk layout (one line + subagent line + failed-entry list, one section per entry)
   fallback.js         automatic model fallback (candidate chain / per-candidate retries / switch notice)
   presets.js          preset management (list / copy / delete, via official services)
   preset-registry.js  runtime registry for self-made presets (who registered, disposers, replay on restart)
   preset-yaml.js      the YAML dialect for preset composition declarations (one definition for read and write)
+  preset-presentation.js  per-preset presentation read/write (mode detection and rewrite)
   models.js           model catalog (provider / model / reasoning effort)
   attribution.js      tool source attribution (who registered it, best-effort)
   sdk-strip.js        PTC tools:sdk declaration trimming

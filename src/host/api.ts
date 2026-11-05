@@ -26,7 +26,7 @@ import { BUILTIN_PROMPT_VARIABLES, applyDefaultNames, findLoadConflict, validate
 import { handleListEfforts, handleListModels } from './models.js'
 import { observedSessions, ownersFor, skillRowOf } from './observe.js'
 import { resolvePresetId } from './preset.js'
-import { handleCreatePreset, handleDeletePreset, handleListPresets } from './presets.js'
+import { handleCreatePreset, handleDeletePreset, handleListPresets, handleSetPresetPresentation } from './presets.js'
 import type { Ctx, Logger, SettingsScope, StudioConfig } from './types.js'
 
 // ── 本文件私有的宿主形状（宿主注入，精确契约见平台源码；够用即可）─────────────
@@ -855,6 +855,11 @@ export function mountApi(ctx: Ctx, logger: Logger, deps: ApiDeps): void {
 
             if (req.method === 'POST' && path === `${API_PREFIX}/presets/delete`) {
                 await handleDeletePreset(req, res, requestDeps as unknown as Parameters<typeof handleDeletePreset>[2])
+                return
+            }
+
+            if (req.method === 'POST' && path === `${API_PREFIX}/presets/presentation`) {
+                await handleSetPresetPresentation(req, res, requestDeps as unknown as Parameters<typeof handleSetPresetPresentation>[2])
                 return
             }
 

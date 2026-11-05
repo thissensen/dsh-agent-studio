@@ -48,7 +48,7 @@ const SECTION_GROUP_RULES: { titleKey: CopyKey; test: (name: string) => boolean 
 ]
 
 /**
- * PTC 模式专属的两个段——它们由工具服务在 `presentAs('ptc')` 时注册，
+ * PTC 模式专属的两个段——它们由预设挂的 PTC 执行器（`@deepseek-ai/dsh-tool-executor-ptc`）注册，
  * 正文**随每次装配动态生成**（写死在提示词集里反而会过期）：
  *
  *  - `tools:ptc-only`：声明「只能用 run_code 调用工具」这条规则；

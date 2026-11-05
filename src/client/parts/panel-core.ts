@@ -29,9 +29,11 @@ import type {
     TransferGroup,
     ToolObservation,
 } from './panel-types'
+import type { PresetPresentation } from '../../host/preset-presentation'
 import {
     ENDPOINTS,
     postJson,
+    savePresetPresentation,
     loadObservation,
     loadSkills,
     loadTools,
@@ -70,7 +72,7 @@ import {
     readImportItems,
     mergePoolItems,
 } from './panel-draft'
-import { h } from './panel-widgets'
+import { h, presentationLabel } from './panel-widgets'
 import {
     setReferenceText,
     agentReferenceText,
@@ -535,6 +537,34 @@ function PanelBody() {
                 return { ...current, bindings: { presets: kept } }
             })
             setActionState({ status: 'ok', message: t('preset.deleted') })
+
+        } catch (err) {
+            setActionState({ status: 'failed', message: (err as Error).message })
+        }
+    }
+
+    /**
+     * 改当前预设的呈现方式（点选即写盘、不进草稿）。
+     *
+     * 与新建 / 删除预设同一条通道：打完端点静默重读、反馈落在动作提示条上。
+     * 不在本地乐观改状态——档位的事实是盘上的预设声明，读回来才算数。
+     *
+     * @param next - 目标档。
+     */
+    async function setPresetPresentation(next: PresetPresentation) {
+        const presetId = selectedPresetId
+        if (presetId === null) return
+
+        setActionState({ status: 'busy' })
+
+        try {
+            await savePresetPresentation(presetId, next)
+
+            await refresh(false)
+            setActionState({
+                status: 'ok',
+                message: t('preset.presentationSet', { id: presetId, mode: presentationLabel(next, t) }),
+            })
 
         } catch (err) {
             setActionState({ status: 'failed', message: (err as Error).message })
@@ -1018,6 +1048,7 @@ function PanelBody() {
             onCloseForm: () => setBarForm(null),
             onCreatePreset: createPreset,
             onDeletePreset: deletePreset,
+            onSetPresentation: setPresetPresentation,
             onExport: () => setExportOpen(true),
             // 顶栏「导入」直接点开系统文件框：覆盖开关已经挪进树弹窗，不用先问一遍。
             onRequestImport: () => {

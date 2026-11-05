@@ -66,12 +66,12 @@ DSH 每轮给模型的**系统提示词不是一个整块**，而是**按段拼�
 
 | 段名 | 来自 | 内容 |
 | --- | --- | --- |
-| `tools:ptc-only` | `dsh-tools` | 「你只能直接调 `run_code`，其它工具都得写在程序里」 |
-| `tools:sdk` | `dsh-tools` | 把当前工具目录渲染成 `run_code` 的 TypeScript SDK 声明 |
+| `tools:ptc-only` | `dsh-tool-executor-ptc` | 「你只能直接调 `run_code`，其它工具都得写在程序里」 |
+| `tools:sdk` | `dsh-tool-executor-ptc` | 把当前工具目录渲染成 `run_code` 的 TypeScript SDK 声明 |
 
-- 这两段**只在 PTC 模式（`presentAs('ptc')`）下注册**，正文每次都现场生成。
+- 这两段**只在预设挂了 PTC 执行器行时才注册**（由 PTC 执行器包注册），正文每次都现场生成。
 - 原生模式下它们不存在；反过来，PTC 模式缺了它们，模型既不知道要写 `run_code`、也看不到任何工具 ⇒ **PTC 直接哑掉**。所以本插件的每个提示词集都把这两段列为常驻。
-- 本插件还会把 `tools:sdk` 的正文按工具集再裁一道：声明里那些不在装载工具集里的工具（`restrict()` 收不动的本层工具就是这一类）会被摘掉，模型读到的 SDK 与它实际调得动的保持一致。
+- 本插件还会把 `tools:sdk` 的正文按工具集再裁一道：声明里那些不在装载工具集里的工具（`restrict()` 收不动的本层工具就是这一类）会被摘掉，模型读到的 SDK 与它实际调得动的保持一致。原生档没有这个段，也就没有这层裁剪——原生下 `subagent` / `list_subagent_models` 的声明会照常出现（能看不能调，见「功能详解 → 预设呈现方式」）。
 
 ## 环境、界面与 MCP
 

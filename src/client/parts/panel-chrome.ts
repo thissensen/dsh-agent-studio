@@ -18,8 +18,18 @@ import type {
     PresetBarProps,
     SaveBarProps,
 } from './panel-types'
+import type { PresetPresentation } from '../../host/preset-presentation'
 import { agentLabel, presetText, setLabel } from './panel-draft'
-import { FieldRow, HelpTip, formButtons, h, menuAnchor } from './panel-widgets'
+import {
+    FieldRow,
+    HelpTip,
+    PRESET_PRESENTATIONS,
+    choiceOptions,
+    formButtons,
+    h,
+    menuAnchor,
+    presentationLabel,
+} from './panel-widgets'
 
 const { useLayoutEffect, useRef, useState } = React
 
@@ -40,14 +50,15 @@ export function PresetBar(props: PresetBarProps) {
     const {
         presets, authorable, selectedPresetId, busy, form, agents, boundAgentId,
         onSelect, onBind, onOpenForm, onFormPatch, onCloseForm,
-        onCreatePreset, onDeletePreset, onExport, onRequestImport, onImportFile,
+        onCreatePreset, onDeletePreset, onSetPresentation, onExport, onRequestImport, onImportFile,
     } = props
 
     const t = useT()
 
-    /** 「来源」与「主代理绑定」两个下拉（`Menu`）的展开态。 */
+    /** 三处下拉（`Menu`）的展开态：来源、主代理绑定、预设呈现方式。 */
     const [fromOpen, setFromOpen] = useState(false)
     const [bindOpen, setBindOpen] = useState(false)
+    const [presentationOpen, setPresentationOpen] = useState(false)
 
     // 平台 `Pill`：自绘胶囊退役（灰底 / 选中描边 / 12px 都跟平台走）；
     // 悬停说明（`title`）与点击照旧。
@@ -208,7 +219,78 @@ export function PresetBar(props: PresetBarProps) {
         }),
     })
 
-    // 第 6 条反馈的三排布局：①预设（含新建/删除）②主代理绑定 + 导入导出 ③保存区。
+    // 这份预设的呈现方式（用户点名：档位归预设，不归 agent）。可改性要三件事同时成立：
+    // 归属（`writable`）、这份构成允不允许改（`presentationEditable`）、平台有没有创作入口
+    // （`authorable`）——任何一条不成立就只读显示：点不动的菜单比灰掉的按钮更糟。
+    const presentation = selectedPreset?.presentation ?? 'inherit'
+    const canSetPresentation = selectedPreset?.writable === true
+        && selectedPreset?.presentationEditable === true
+        && authorable === true
+
+    // 旧写法的档位后面补一句标注：用户看到的「原生」其实来自老声明，选一次新档位就能换成新写法。
+    let presentationText = presentationLabel(presentation, t)
+    if (selectedPreset?.presentationLegacy === true) {
+        presentationText = t('preset.presentationLegacy', { mode: presentationText })
+    }
+
+    // host 给的原因有两个去处：不可改时进行尾问号浮层，可改时（如那条执行器行被
+    // `disabled: true` 停用）进下面那行灰字——面板只把它摆出来，不自己编一句更泛的话。
+    const presentationProblem = selectedPreset?.presentationProblem ?? null
+
+    // 灰字提示只占一行，按「用户下一步要知道什么」排优先级：不能改先说规则；能改时先报
+    // host 的说明——停用状态下看到的档位与真实生效的不一致，比「旧写法」更要紧。
+    let presentationHint: string | null = null
+    if (canSetPresentation !== true) {
+        presentationHint = t('preset.presentationFixedHint')
+
+    } else if (presentationProblem !== null) {
+        presentationHint = presentationProblem
+
+    } else if (selectedPreset?.presentationLegacy === true) {
+        presentationHint = t('preset.presentationLegacyHint')
+    }
+
+    // 可改走平台 `Menu`（锚点与「来源」「主代理绑定」同一套写法）；不可改只给纯文本档位 +
+    // 行尾问号浮层，原因优先用 host 给的那句，老 host 没有就退回通用说明。
+    const presentationControl = canSetPresentation === true
+        ? h(Menu, {
+            key: 'menu',
+            open: presentationOpen,
+            anchor: menuAnchor({
+                open: presentationOpen,
+                text: presentationText,
+                disabled: busy,
+                onClick: () => setPresentationOpen(!presentationOpen),
+            }),
+            items: choiceOptions(PRESET_PRESENTATIONS, t),
+            selectedId: presentation,
+            onSelect: (id: string) => {
+                onSetPresentation(id as PresetPresentation)
+                setPresentationOpen(false)
+            },
+            onClose: () => setPresentationOpen(false),
+            side: 'bottom',
+            portal: true,
+        })
+        : h('span', { key: 'value' }, presentationText)
+
+    // 呈现方式独占一行（规范第 24 条）：预设 Tab 行已经挤满，再塞控件会把新建 / 删除挤成
+    // 竖排。它紧跟预设那一行，视觉上与「当前预设」归到一组。
+    const presentationRow = selectedPresetId === null ? null : h('div', { key: 'presentation', style: STYLE.barColumn }, [
+        h(FieldRow, {
+            key: 'presentationRow',
+            label: t('preset.presentationLabel'),
+            tail: canSetPresentation === true ? undefined : h(HelpTip, {
+                key: 'help',
+                text: presentationProblem ?? t('preset.presentationReadOnly'),
+            }),
+            children: presentationControl,
+        }),
+        presentationHint === null ? null : h('div', { key: 'hint', style: STYLE.hint }, presentationHint),
+    ])
+
+    // 第 6 条反馈的排布：①预设（含新建/删除）②预设呈现方式 ③主代理绑定 + 导入导出
+    // （保存区是另一条独立的吸顶行）。
     const divider = (key: string) => h('div', { key, style: STYLE.divider })
 
     const presetRow = h('div', { key: 'presetRow', style: { ...STYLE.row, width: '100%' } }, [
@@ -279,6 +361,7 @@ export function PresetBar(props: PresetBarProps) {
     return h('div', { style: STYLE.barColumn }, [
         presetRow,
         divider('divider-1'),
+        presentationRow,
         transferRow,
         hintRow,
         formModal,

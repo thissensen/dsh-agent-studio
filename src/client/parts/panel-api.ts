@@ -12,6 +12,7 @@ import type {
     Preset,
 } from './panel-types'
 import type { StudioConfig } from '../../host/types'
+import type { PresetPresentation } from '../../host/preset-presentation'
 
 /** host 侧的全部端点。写端点另需自定义头，见 `postJson`。 */
 export const ENDPOINTS = {
@@ -24,6 +25,7 @@ export const ENDPOINTS = {
     efforts: '/api/dsh-agent-studio/models/efforts',
     createPreset: '/api/dsh-agent-studio/presets/create',
     deletePreset: '/api/dsh-agent-studio/presets/delete',
+    setPresetPresentation: '/api/dsh-agent-studio/presets/presentation',
     ui: '/api/dsh-agent-studio/ui',
 }
 
@@ -125,6 +127,19 @@ export async function loadPresets(): Promise<{ presets: Preset[]; authorable: bo
         // 平台没有创作入口（没有 `register`）时，新建与删除都办不成——按钮据此置灰。
         authorable: data.authorable === true,
     }
+}
+
+/**
+ * 改一个预设的呈现方式。点选即写盘，不进草稿。
+ *
+ * 真正的档位在盘上的预设 YAML 里，所以写完由调用方重读 `/presets` 回显——
+ * 这里不回传状态，更不在本地乐观改一份。
+ *
+ * @param presetId - 预设 id。
+ * @param presentation - 目标档。
+ */
+export async function savePresetPresentation(presetId: string, presentation: PresetPresentation): Promise<void> {
+    await postJson(ENDPOINTS.setPresetPresentation, { id: presetId, presentation })
 }
 
 /**

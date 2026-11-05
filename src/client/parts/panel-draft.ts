@@ -58,7 +58,6 @@ export function cloneAgent(agent: RawAgent): DraftItem {
         fallbacks: (agent?.fallbacks ?? []).map(cloneModel),
         maxRetries: agent?.maxRetries ?? DEFAULT_RETRIES,
         background: agent?.background ?? 'always-background',
-        toolPresentation: agent?.toolPresentation ?? 'follow',
         promptSets: [...(agent?.promptSets ?? [])],
         toolSets: [...(agent?.toolSets ?? [])],
         skillSets: [...(agent?.skillSets ?? [])],

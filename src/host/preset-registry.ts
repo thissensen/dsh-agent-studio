@@ -57,6 +57,11 @@ export interface PresetRegistry {
     sync(): Promise<void>
     /** 把一份定义登记进配置并注册（新建）。办不成时抛，由端点回 4xx。 */
     create(definition: PresetDefinitionConfig, update: (patch: unknown) => Promise<void>): Promise<void>
+    /**
+     * 换掉一份已注册自建预设的定义（改档）：先注销再注册，最后改配置。
+     * 办不成时抛，由端点回 4xx——失败的注册由 `sync()` 按配置复原。
+     */
+    replace(definition: PresetDefinitionConfig, update: (patch: unknown) => Promise<void>): Promise<void>
     /** 注销一份自建预设并把它从配置里摘掉（删除）。办不成时抛，由端点回 4xx。 */
     remove(presetId: string, update: (patch: unknown) => Promise<void>): Promise<void>
 }
@@ -174,6 +179,49 @@ export function createPresetRegistry(service: () => unknown, deps: PresetRegistr
                 const 注销 = 注销器组.get(预设id)
                 注销器组.delete(预设id)
                 await 注销?.().catch(() => undefined)
+
+                throw err
+            }
+        },
+
+        async replace(定义, update) {
+            const 预设id = 定义.id
+            if (typeof 预设id !== 'string' || 预设id === '') throw new Error('预设 id 不能为空')
+
+            const 旧注销 = 注销器组.get(预设id)
+            注销器组.delete(预设id)
+
+            if (旧注销 !== undefined) {
+                try {
+                    // 平台对同 id 直接抛 `Duplicate agent preset`，所以必须先注销再注册。
+                    await 旧注销()
+
+                } catch (err) {
+                    // 注销失败不算致命：下面的注册会撞 Duplicate 并被 catch 成 4xx，复原仍走 sync()。
+                    deps.logger.warn?.(`[agent-studio] 预设「${预设id}」注销失败（接着重注册）：${reasonOf(err)}`)
+                }
+            }
+
+            try {
+                await 注册一份(定义, 预设id)
+
+            } catch (err) {
+                // 配置还没动过，sync() 会把配置里的旧定义重新注册回来。
+                await sync()
+                throw err
+            }
+
+            const 现有 = deps.getConfig()?.createdPresets ?? []
+
+            try {
+                await update({ createdPresets: 现有.map((旧) => (旧?.id === 预设id ? 定义 : 旧)) })
+
+            } catch (err) {
+                // 配置仍是旧 YAML：撤掉刚注册的那份，sync() 就把旧定义复原回来。
+                const 注销 = 注销器组.get(预设id)
+                注销器组.delete(预设id)
+                await 注销?.().catch(() => undefined)
+                await sync()
 
                 throw err
             }

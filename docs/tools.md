@@ -56,9 +56,9 @@ DSH 官方提供的工具包（`dsh-tool-*`、实验组 `dsh-experimental-*` 与
 - **整批阻不阻塞是 OR 判定**：一项「阻塞」就整批阻塞。不阻塞的那几项会被同批连坐——这是有意的取舍：一次工具调用只能交回一次结果。
 - **返回形状只剩两种，看 `kind`**：
   - `started`：这一批**一项「阻塞」档都没有**时立刻返回。`items` 每项 `{ agent, subagentId?, description?, error? }`；每个子代理跑完由**平台逐条发结算消息**（带它的完整收尾文本）。启动失败的项没有 `subagentId`、带 `error`。
-  - `foreground-batch`：这一批**至少一项是「阻塞」档**时，整批一起启动、一起等，全部结算后返回。`results` 按输入顺序逐项 `{ agent, ok, subagentId?, description?, output?, error? }`；顶层另有 `filePath`（写成了）或 `fileError`（没写成）。
+  - `foreground-batch`：这一批**至少一项是「阻塞」档**时，整批一起启动、一起等，全部结算后返回。`results` 按输入顺序逐项 `{ agent, ok, subagentId?, description?, error? }`；顶层另有 `filePath`（写成了）或 `fileError`（没写成）。
   - 旧形状 `continuable` / `foreground` / `background-batch` **已不存在**，连同 `batchId`、汇总消息、以及「超限才转存」的兜底一起删除。
-  - **阻塞批整批一律落盘、同时全文内联**：先写成一个 `.md`（系统临时目录、按会话 id 短哈希分目录、文件名取 UTC 时间戳），再把整批正文夹进工具结果在对话里显示的那份文本——首行报行数与字符数加文件路径，末行写「全文完」；`results` 里每项的 `output` 仍是子代理的原始输出。文件里只有成功项的正文，按原序号分节。写盘失败不改形状，只是首行改报原因。这些文件不会被插件清理。
+  - **阻塞批整批一律落盘，对话里只留一行落点**：先写成一个 `.md`（系统临时目录、按会话 id 短哈希分目录、文件名取 UTC 时间戳），工具结果在对话里显示的那份文本就只有这几行：`本批结果已写入：<路径>（共 N 项：M 成功 · K 失败）`（写盘失败时改报 `文件没写成（<原因>）（共 N 项：M 成功 · K 失败）`），失败项另各占一行（`【序号】代理（名字） — 描述 · 失败 · 原因`）；落点行下面还有一行 `子代理：【序号】<id>、…`，列出本批每个可续聊的子代理会话（启动就没起来的项没有 id，不列）；**正文不进对话**、只在文件里；`results` 不含正文（写盘失败也不回填）。文件里只有成功项的正文，按原序号分节。这些文件不会被插件清理。
 - **启动失败逐项报**：一项没起来只让它落成失败项（`started` 里带 `error`、`foreground-batch` 里 `ok: false`），其余照常。平台活跃子代理名额到顶（`ACTIVATION_LIMIT_REACHED`）时，那一项的错误会提示把它**拆成单独一次重派**。
 - **一项都没起来**（整批都是启动失败）⇒ 整次调用直接抛第一个启动错误，不返回一张空回执。
 - **取消不做 partial**：阻塞批被取消或 PTC 超时 ⇒ 整次调用失败、**不返回部分结果**，错误文案会指你去打开面板上的「突破 PTC 120 秒限制」。不阻塞批不受影响——那些子代理已经在平台上自己跑。
@@ -132,11 +132,11 @@ DSH 官方提供的工具包（`dsh-tool-*`、实验组 `dsh-experimental-*` 与
 | --- | --- | --- |
 | `cordis_inspect_list` `cordis_inspect_query` `cordis_inspect_self` | `dsh-tool-cordis` | 查看实时 Cordis 运行时 |
 | `cordis_define` `cordis_run` `cordis_stop` `cordis_undefine` | 同上 | 创建、运行、停止、更新或移除临时动态包 |
-| `run_code` | `dsh-tools` | 针对可用工具执行 TypeScript 程序（PTC 的入口工具） |
+| `run_code` | `dsh-tool-executor-ptc` | 针对可用工具执行 TypeScript 程序（PTC 的唯一入口工具；不注册进工具表，这个工具名由 PTC 执行器保留） |
 
 定义只存在于进程内存中，DSH 重启即消失；这个过程不写仓库文件、不安装依赖，也不改 `cordis.yml`。
 
-- `run_code` 正是 PTC 模式的入口：给 agent 选「跟随预设 / 原生 / 强制 PTC」三档呈现时，PTC 档模型拿到的就是它。
+- `run_code` 是 PTC 档的唯一入口工具：预设挂了 PTC 执行器行时，模型能直接调的就只有它，其余工具都得写在程序里（声明见 `tools:sdk` 段）。
 
 ## 会话与平台管理
 
@@ -151,11 +151,19 @@ DSH 官方提供的工具包（`dsh-tool-*`、实验组 `dsh-experimental-*` 与
 
 ## 策略：不注册工具，但决定工具怎么表现
 
+这一组包决定「工具怎么呈现给模型」，呈现方式的落点是**预设里挂哪一条工具执行器行**：平台每个 scope 只许一条执行器（`Only one tool executor may be registered in each scope`），选取时沿 scope 链就近赢，root 那份就是部署默认。
+
 | 包 | 作用 |
 | --- | --- |
+| `dsh-tool-executor-native` | 原生呈现：工具声明直接进 `request.tools` |
+| `dsh-tool-executor-ptc` | PTC 呈现：注册 `run_code` 这一件入口工具，工具目录渲染成 `tools:sdk` 段的 TypeScript 声明 |
+| `dsh-agent-tool-presentation` | 已弃用：按 `config.mode` 挂上面两个执行器之一，效果与新写法相同 |
 | `dsh-tool-call-timeout-policy` | 给配合取消的工具调用设协作式时间上限，超时映射成清晰的模型错误 |
 | `dsh-compaction-tool-result-pruner` | 工具结果过大时先裁进预算，再交给会话压缩器 |
 | `dsh-compaction-image-offload` | 图像超出路由预算时，用占位符替换最旧的图片并重试 |
+
+- **同一份工具集，两档看到的形状不一样**：PTC 下模型只直接调 `run_code`，其余工具的声明在 `tools:sdk` 段里；原生下声明直接进 `request.tools`，模型直接调。
+- **本插件只在用户点档时改写这一行**：收集预设的呈现方式、写档位时读改它；两个执行器包不在 `peerDependencies` 里——插件从不 import 它们。
 
 ## 配工具集时怎么用这份清单
 

@@ -69,12 +69,9 @@ export const zh = {
     'defaultName.skillSets': '未命名技能集',
     'defaultName.sections': '未命名段',
 
-    // ── 枚举值（后台模式 / Agent 模式）────────────────────────────────────
+    // ── 枚举值（后台模式）────────────────────────────────────────────────
     'background.always': '不阻塞',
     'background.foreground': '阻塞',
-    'presentation.follow': '跟随预设',
-    'presentation.native': '原生',
-    'presentation.ptc': '强制 PTC',
 
     // ── 校验与冲突（保存 / 装载 / 导入时的即时反馈）───────────────────────
     'validate.poolIdEmpty': '有{noun}的 id 是空的。',
@@ -253,6 +250,17 @@ export const zh = {
     'preset.created': '预设「{id}」已创建。',
     'preset.deleted': '预设已删除。',
 
+    // ── 预设呈现方式（顶栏那一行三档下拉）────────────────────────────────
+    'preset.presentationLabel': '预设呈现方式',
+    'preset.presentation.inherit': '继承部署默认',
+    'preset.presentation.native': '原生',
+    'preset.presentation.ptc': 'PTC',
+    'preset.presentationLegacy': '{mode}（旧写法）',
+    'preset.presentationLegacyHint': '这个预设用的是旧的呈现声明；选一次新的档位就会换成新写法。',
+    'preset.presentationReadOnly': '平台内置预设只读',
+    'preset.presentationSet': '预设「{id}」的呈现方式已设为「{mode}」，新会话起生效。',
+    'preset.presentationFixedHint': '这一份构成不允许插件改写（见行尾说明）。',
+
     // ── 平台内置预设的显示名与说明────────────────────────────────────────
     // 平台不发布这 4 个预设的 name / description（判据见 `panel.ts` 的 `presetText()`），
     // 文案照平台字典抄（`dsh-client-ui-agent-preset` 的 presetStandardName 那一组）。
@@ -287,12 +295,6 @@ export const zh = {
     ].join('\n'),
     'agent.toolSets': '工具集',
     'agent.toolSetsHint': '给 Agent 配备的工具',
-    'agent.presentation': 'Agent 模式',
-    'agent.presentationHint': [
-        '「跟随预设」：预设是什么就是什么',
-        '「原生」：强制标准模式，不使用 PTC',
-        '「强制 PTC」：强制使用 PTC 模式',
-    ].join('\n'),
     'agent.skillSets': '技能集',
     'agent.skillSetsHint': '给 Agent 配备的 skill',
     'agent.modelCard': '模型与后台模式',
@@ -403,12 +405,9 @@ export const en: Record<CopyKey, string> = {
     'defaultName.skillSets': 'Untitled skill set',
     'defaultName.sections': 'Untitled section',
 
-    // ── Enum values (background mode / agent mode) ────────────────────────
+    // ── Enum values (background mode) ─────────────────────────────────────
     'background.always': 'Non-blocking',
     'background.foreground': 'Blocking',
-    'presentation.follow': 'Follow preset',
-    'presentation.native': 'Native',
-    'presentation.ptc': 'Force PTC',
 
     // ── Validation and conflicts ──────────────────────────────────────────
     'validate.poolIdEmpty': 'A {noun} has an empty id.',
@@ -583,6 +582,17 @@ export const en: Record<CopyKey, string> = {
     'preset.deleteConfirm': 'Delete the preset "{name}"? Its registration is revoked and its definition is removed from the configuration; this cannot be undone.',
     'preset.created': 'Preset "{id}" created.',
     'preset.deleted': 'Preset deleted.',
+
+    // ── Preset presentation (the three-mode dropdown in the top bar) ──────
+    'preset.presentationLabel': 'Preset presentation',
+    'preset.presentation.inherit': 'Deployment default',
+    'preset.presentation.native': 'Native',
+    'preset.presentation.ptc': 'PTC',
+    'preset.presentationLegacy': '{mode} (legacy form)',
+    'preset.presentationLegacyHint': 'This preset still uses the old presentation declaration; picking a mode once rewrites it to the current form.',
+    'preset.presentationReadOnly': 'Presets shipped with the deployment are read-only',
+    'preset.presentationSet': 'Presentation of preset \'{id}\' is now \'{mode}\'; it applies to new sessions.',
+    'preset.presentationFixedHint': 'This composition cannot be rewritten by the plugin (see the note).',
     'preset.builtIn.standard': 'Standard mode',
     'preset.builtIn.standardHint': 'Work with code, files, and information. Suitable for most tasks, with search, editing, terminal commands, and other tools available as needed.',
     'preset.builtIn.ptc': 'PTC mode',
@@ -614,12 +624,6 @@ export const en: Record<CopyKey, string> = {
     ].join('\n'),
     'agent.toolSets': 'Tool sets',
     'agent.toolSetsHint': 'Tools equipped for the agent',
-    'agent.presentation': 'Agent mode',
-    'agent.presentationHint': [
-        '"Follow preset": whatever the preset says',
-        '"Native": force the standard mode, no PTC',
-        '"Force PTC": force PTC mode',
-    ].join('\n'),
     'agent.skillSets': 'Skill sets',
     'agent.skillSetsHint': 'Skills equipped for the agent',
     'agent.modelCard': 'Model and background mode',

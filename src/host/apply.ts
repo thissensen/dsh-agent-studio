@@ -2,59 +2,54 @@
 /**
  * 装配期生效逻辑：按插件配置改写模型实际看到的段与工具面。
  *
- * v2 的两条通道仍各自分头走，但「谁在哪一层生效」按代理类型切开了：
+ * v2 的两条通道仍各自分头走：
  *
  *  1. **段** —— 主代理与子代理都在 `system-prompt/assemble` 瀑布里重建 `result.sections`。
  *     投递顺序就是**数组顺序**（`order` 字段在 `assemble()` 构造投递对象时已被
  *     丢弃，改写它完全无效——已由源码与真机双重确认）。
  *
- *  2. **工具** —— 主代理在装配期挂 `restrict()`；**子代理改在「创建窗口」挂**
- *     （`agent/created` 事件，见 `handleChildCreated`）。原因：`assembly.tools` 在瀑布
- *     **之前**就按未收窄的工具面求值完毕，装配期挂的收窄管不到当次；而 `agent/created`
- *     必然早于子代理的第一次装配（创建 → 挂 composition → 提交首个 prompt），在那里挂，
- *     第一次装配就是收窄后的面，零竞态。子代理因此**不再**走装配期收窄，避免双 restrict
- *     交集打架。
- *     **呈现模式**（三档开关的 `presentAs`）比 `restrict` 更吃时机：它影响 `wireSchemas`
- *     与 SDK 段正文，两者在 `assemble()` 前半段求值 ⇒ 挂点只有「创建窗口」与「预设切换
- *     补救」（`tools/change`，见 `reconcileMainPresentations`）；装配期那次只是保状态，
- *     对当次无效——这就是「切预设后第一条仍是原生」的成因与修复。
+ *  2. **工具** —— 工具面**趁早挂**：主代理与子代理都在「创建窗口」（`agent/created`）
+ *     挂 `restrict()` + `guard()`（主代理按「预设 → 绑定」解析，见 `handleMainCreated`；
+ *     子代理查映射表，见 `handleChildCreated`）。原因：平台在进瀑布**之前**就让 provider
+ *     按视图收齐工具声明（瀑布收到的 assembly 里**没有** `tools`，返回后又被 provider
+ *     那份覆盖），装配期挂的收窄管不到当次；而 `agent/created` 必然早于第一次装配。
+ *     切预设**不重建 agent**、改配置也不发 `agent/created`，所以另有两个重挂点
+ *     （`tools/change` 与 `settings/document-updated`，见 `reconcileMainSurfaces`）；
+ *     装配期那次只是第 4 道兜底。
  *
  * 不干预原则（规格 3.4）：**未**绑定代理、或代理查不到，就原样透传，一行都不改。
  * **绑定即接管**（用户拍板：2026-09-17 定于段面，2026-09-18 统一到三面）：绑定之后，
  * 段面、工具面、技能面**全部**由该代理装载的集决定——**一个集都没装就是空集**：
  * 投递空提示词、一个工具都不给、一个 skill 都不暴露。三面同一套语义，没有中间态。
  *
- * 工具面的收窄要三招并用，因为平台的 `restrict()` 按设计只收**继承面**（全局 + 祖先层，
+ * 工具面的收窄要两招并用，因为平台的 `restrict()` 按设计只收**继承面**（全局 + 祖先层，
  * 见 dsh-tools 的 `view()`），收不动注册在 **agent 本层** 的工具
  * （`subagent`/`list_subagent_models` 就是这样装上去的）：
  *
  *   - 视图层：`restrict({deny/allow})` —— 收继承面；
- *   - 投递层：`restrictToolSchemas()` —— 直接裁本次装配的工具声明，对所有层有效；
- *   - 执行层：`guard()` —— 拦「晚注册逃逸」与本层工具的实际调用。
+ *   - 执行层：`guard()` —— 拦「晚注册逃逸」与本层工具的实际调用。声明层没有落点
+ *     （瀑布产物里没有 `tools`），本层工具只能在这里拦，表现为「能看不能调」。
  *
- * 三招判据同源：**不在工具集并集里的，除机制工具外一律收**。
+ * 两招判据同源：**不在工具集并集里的，除机制工具外一律收**。
  *
  * @module dsh-agent-studio/apply
  */
 
 import { appendFileSync } from 'node:fs'
 
-import { agentById, boundAgentId, mergeSections, mergeSkillNames, mergeToolNames } from './config.js'
+import { SETTINGS_NAMESPACE, agentById, boundAgentId, mergeSections, mergeSkillNames, mergeToolNames } from './config.js'
 import { agentOfChildSession } from './delegate.js'
 import { describePresetResolution, resolvePresetId } from './preset.js'
 import { stripSdkEntries } from './sdk-strip.js'
-import type { Ctx, Logger, SettingsScope, StudioConfig, SectionConfig, ToolPresentation } from './types.js'
+import type { Ctx, Logger, SettingsScope, StudioConfig, SectionConfig } from './types.js'
 
 // ── 本文件私有的宿主形状（宿主注入，精确契约见平台源码；够用即可）─────────────
 
-/** 工具服务：restrict / guard / view / presentAs / sdkSection 用到的成员。 */
+/** 工具服务：restrict / guard / view 用到的成员。 */
 interface ToolService {
     view(scope: unknown): { visible?: Map<string, unknown>; restrictableNames?: Set<string>; [key: string]: unknown }
     restrict(rule: { allow?: string[]; deny?: string[] }): () => void
     guard(fn: (exec: ToolExecLike) => string | undefined): () => void
-    /** 声明本 scope 的呈现模式（三档开关用，须在 scoped ctx 上调用）；返回恢复默认的精确 disposer。 */
-    presentAs?(mode: 'native' | 'ptc'): () => void
-    sdkSection?(): { text?(context: unknown): string | undefined }
     [key: string]: unknown
 }
 
@@ -100,12 +95,6 @@ interface SkillDef {
     [key: string]: unknown
 }
 
-/** 装配期产物里的单条工具声明。 */
-interface ToolSchema {
-    name?: string
-    [key: string]: unknown
-}
-
 /** 装配期产物里的一段。 */
 interface Section {
     name?: string
@@ -114,9 +103,13 @@ interface Section {
     [key: string]: unknown
 }
 
-/** 装配期 `system-prompt/assemble` 的产物（段、动态快照与工具声明）。 */
+/**
+ * 装配期 `system-prompt/assemble` 的产物（段与动态快照）。
+ *
+ * **没有 `tools`**：平台在进瀑布之前就按视图收齐工具声明，瀑布收到的 assembly 里不含它，
+ * 返回后再由 provider 那份覆盖（0.2.2 源码）。所以声明层在瀑布里没有可改的字段。
+ */
 interface AssembleResult {
-    tools?: ToolSchema[]
     sections?: Section[]
     /** 动态运行时快照的命名分片；清空即「本次不投递快照」（见 `rewrite` 末尾）。 */
     contexts?: unknown[]
@@ -177,7 +170,9 @@ function errText(err: unknown): string {
 /**
  * 永远不受工具集收窄的**机制工具**（不是「保留名」）：
  *
- *  1. `run_code` —— PTC 的呈现传输保留名，收掉它 PTC 直接失效；
+ *  1. `run_code` —— **防御性放行，不是兼容分支**：呈现由执行器决定之后它只在 PTC 执行器
+ *     选中的组合里出现，而它恰恰是 PTC 下模型唯一能调的工具——漏网路径上收掉它，整条会话
+ *     的工具调用会全废；
  *  2. `structured_output` —— 子代理向父会话汇报结果的机制工具（平台注册在子代理本层），
  *     收掉它子代理就哑了。
  *
@@ -193,6 +188,16 @@ const NO_RESTRICTABLE_NAMES: Set<string> = new Set()
 /** 已挂过的工具收窄，键是 agent 对象。配置一变就整体重挂。 */
 const appliedSurfaces = new WeakMap<Agent, { signature: string; disposers: Array<() => void> }>()
 
+/**
+ * 本插件正在改工具层的那一刻。
+ *
+ * `restrict()` / `guard()` 与它们的 disposer 都会**同步**发一次 `tools/change`：
+ * `dsh-scope` 的 `ScopedLayers.effect()` 收尾就调 `onChange`，dsh-tools 把它接成
+ * `ctx.emit('tools/change')`。那一趟是本插件自己的改动引起的，重挂点重入进去会
+ * 「边挂边判」——同一份面挂出两套，前一套的 disposer 还没记表就丢了。
+ */
+let mutatingSurfaces = false
+
 /** 子代理在创建窗口挂的执行期 guard，键是 agent 对象；同一 agent 重挂前先撤旧的。 */
 const childGuards = new WeakMap<Agent, Array<() => void>>()
 
@@ -200,16 +205,7 @@ const childGuards = new WeakMap<Agent, Array<() => void>>()
 const appliedSkills = new WeakMap<Agent, { signature: string; disposers: Array<() => void> }>()
 
 /**
- * 已声明的工具呈现模式与其精确 disposer，键是 agent 对象。
- *
- * 为什么单独记 mode：`presentAs` **同一 scope 只能声明一次**（同一 layer 上二次声明
- * 直接抛 `conflicts with ... already declared for this scope`）——所以重挂前必须先
- * dispose 旧的，同模式则直接跳过。这就是「幂等与撤销」的全部内容。
- */
-const appliedPresentations = new WeakMap<Agent, { mode: 'native' | 'ptc'; dispose: () => void }>()
-
-/**
- * 挂上段拼接、工具收窄与子代理创建窗口挂钩。
+ * 挂上段拼接、工具收窄与三个重挂点（创建窗口 / 配置变更 / 切预设）。
  *
  * 由调用方在 `settings` 服务就绪后调用——拿不到设置服务时不挂，
  * 插件退回纯观察，与「缺省不干预」一致。
@@ -239,7 +235,7 @@ export function mountApply(ctx: Ctx, logger: Logger, settingsScope: SettingsScop
     }
 
     /**
-     * 子代理的**创建窗口**：查映射表 + 挂工具面收窄 + 声明 Agent 模式。
+     * 子代理的**创建窗口**：查映射表 + 挂工具面收窄。
      *
      * 映射由 `delegate.js` 在派活**前**写好（预生成会话 id 的精确登记），装配期的段
      * 拼接就靠它；这里只查表，查不到就什么都不做（官方 `subagent` 派出的子代理、
@@ -248,7 +244,7 @@ export function mountApply(ctx: Ctx, logger: Logger, settingsScope: SettingsScop
      * 挂工具面在这里而不是装配期，是因为 `agent/created` 早于第一次装配（见模块头注释）。
      * 名单**当场验证**：`restrict()` 点名的名字必须全在当时的可收窄集合里，否则整次调用
      * 抛错。所以 allow 取「可收窄集合 ∩ 工具集并集」，再加回保留名——保留名永远放行，
-     * 而 `run_code` 不在可收窄集合里（视图单独附加它），天然不会进 allow。
+     * 而 `run_code` 不在可收窄集合里（`restrict()` 禁止点名它），天然不会进 allow。
      *
      * 注意子代理的工具面挂在 `toolNames === undefined` 的出口**之前**——「没装工具集」
      * 和「收窄成空」是两回事。
@@ -266,23 +262,19 @@ export function mountApply(ctx: Ctx, logger: Logger, settingsScope: SettingsScop
         const agentConfig = agentById(config, agentId)
         if (agentConfig === undefined) return
 
-        // Agent 模式（三档开关）：`presentAs` 影响 `wireSchemas` 与 SDK 段正文，两者在
-        // 装配前半段求值，装配期挂只对**下一次**生效，所以在这个创建窗口挂。
-        applyToolPresentation(logger, ctx, agent, presentationOf(config, agentId), `子代理=${agentId}`)
-
         // 绑定即接管：一个集都没装就是空并集（一个工具都不给），与「装了空集」同义。
         const toolNames = mergeToolNames(config, agentConfig.toolSets) ?? []
         mountChildToolSurface(logger, agent, toolNames, `子代理=${agentId}`)
     }
 
     /**
-     * 主代理的**创建窗口**：能解析出「预设 → 绑定代理」时当场声明 Agent 模式。
+     * 主代理的**创建窗口**：能解析出「预设 → 绑定代理」时当场把工具面收窄。
      *
      * 主代理的身份（`bindings.presets` 里那个绑定）在装配期才被 `resolveTarget` 使用，
      * 但预设解析（`agentPresets.composedPreset`）在创建时通常已可用——正常创建路径
      * 都会先 join 预设再发布（平台 `agent/created` 的 warning 就是为异常路径准备的）。
-     * 解析不出来时静默跳过（走 `follow`，对没挂过声明的是零动作），装配期那次会兜底；
-     * **切预设**引出的第二条路在 `reconcileMainPresentations`。
+     * 解析不出来时静默跳过，装配期那次会兜底；**切预设**与**改配置**引出的另两条路在
+     * `reconcileMainSurfaces`。
      *
      * @param agent - 刚创建的 agent。
      */
@@ -291,52 +283,96 @@ export function mountApply(ctx: Ctx, logger: Logger, settingsScope: SettingsScop
         // 子代理（有父会话）走 handleChildCreated；这里只看主代理。
         if (typeof parentSessionId === 'string') return
 
-        const config = settingsScope.get()
-        if (config === undefined) return
+        const surface = mainSurfaceOf(ctx, settingsScope.get(), agent)
+        if (surface === undefined) return
 
-        // Agent 模式（三档开关）：同一创建窗口，理由见子代理分支。
-        applyMainPresentation(ctx, logger, config, agent, '创建窗口')
+        const tools = agent?.ctx?.tools
+        if (tools === undefined) return
+
+        applyToolSurface(logger, tools, agent, surface.tools, surface.label)
     }
 
     /**
-     * 预设切换的补救：平台「切换预设」走 `AgentPresets.select()` → `recompose()`，
-     * 只对**已有 agent** 重绑 standing scope（`binding.rebind(…)`）——不重建 agent、
-     * 不发 `agent/created`。于是创建窗口没有第二次机会，而装配期那次挂对当次太晚
-     * （`wireSchemas` 与 SDK 段正文在瀑布之前已求值）⇒ 真机现象：切预设后的
-     * **第一条**消息仍是原生、第二条才 PTC（2026-09-19 会话取证：
-     * `agent-preset/selected` 落在第一条 `turn/start` 之前，但 agent 早于它创建）。
+     * 把活着的主代理的工具面重挂到「预设 → 绑定」当下该有的样子。
      *
-     * 这条监听补的就是那个缺口：`recompose()` 收尾会 `emit('tools/change')`，那一刻
-     * 新预设已绑好、第一条消息还没发。事件**不带参数**（平台自己也只把它当「重算」
-     * 信号，见 `dsh-tool-subagent` 的同名监听），所以这里遍历活 agent、对每个主代理
-     * 走与创建窗口同一套解析——幂等（同档跳过），未绑定的走 `follow` 撤销。
+     * 两个调用点各补一个「创建窗口不会再来一次」的缺口：
      *
-     * 判据与 `handleMainCreated` 一致（`parentSession` 非字符串 = 主代理）：子代理
-     * 有自己的契约（创建窗口按映射表挂收窄），不能被主代理的绑定误挂。
+     *  - `tools/change`：平台「切换预设」走 `AgentPresets.select()` → `recompose()`，
+     *    只对**已有 agent** 重绑 standing scope——不重建 agent、不发 `agent/created`。
+     *    `recompose()` 收尾会 `emit('tools/change')`，那一刻新预设已绑好、第一条消息还
+     *    没发。事件**不带参数**（平台自己也只把它当「重算」信号，见 `dsh-tool-subagent`
+     *    的同名监听），所以这里遍历活 agent 逐个重算。
+     *  - `settings/document-updated`：面板保存、手改配置文件都会改掉「预设 → 绑定」与
+     *    工具集，同样不发 `agent/created`。
+     *
+     * 解析不出目标面 = 这个主代理此刻不该被接管 ⇒ 撤掉已挂的收窄，别把上一个绑定的面留在
+     * 进程里。一个绑定都没有时同理（谁都该「不干预」），那条分支只撤、不解析预设。
+     * 判据与 `handleMainCreated` 一致（`parentSession` 非字符串 = 主代理）：子代理有
+     * 自己的契约（创建窗口按映射表挂收窄），不能被主代理的绑定误挂。
+     *
+     * @param source - 这次重挂是打哪儿来的（进 trace 与 warn，排障对时序用）。
      */
-    const reconcileMainPresentations = () => {
+    const reconcileMainSurfaces = (source: string) => {
         const config = settingsScope.get()
-        if (config === undefined) return
 
         const registry = ctx.get?.('agents') as { list?(): Agent[] } | undefined
         if (typeof registry?.list !== 'function') return
 
         const mains = registry.list().filter((agent) => typeof agent?.session?.header?.parentSession !== 'string')
-        trace(`预设切换补救 · tools/change · 主代理 ${mains.length} 个`)
+        trace(`${source} · 主代理 ${mains.length} 个`)
+
+        // `tools/change` 是高频无参事件：一个绑定都没有就没有可接管的主代理，只剩「把挂过
+        // 的收窄撤掉」这一件事——不做逐 agent 的预设解析（每个 agent 只查一次记表）。
+        if ((config?.bindings?.presets ?? []).length === 0) {
+            for (const agent of mains) withdrawToolSurface(agent)
+            return
+        }
 
         for (const agent of mains) {
-            applyMainPresentation(ctx, logger, config, agent, '预设切换补救')
+            try {
+                const surface = mainSurfaceOf(ctx, config, agent)
+                if (surface === undefined) {
+                    withdrawToolSurface(agent)
+                    continue
+                }
+
+                const tools = agent?.ctx?.tools
+                if (tools === undefined) continue
+
+                applyToolSurface(logger, tools, agent, surface.tools, surface.label)
+
+            } catch (err) {
+                logger.warn?.(`[agent-studio] ${source} · 主代理 ${agent?.id ?? '无'} 的工具面重挂失败，已跳过：${errText(err)}`)
+            }
         }
     }
 
     ctx.on('tools/change', (() => {
+        // 自己刚改的那一次不发重挂：`restrict()`/`guard()` 的 emit 是同步的，
+        // 重入进来会边挂边判（见 `mutatingSurfaces`）。
+        if (mutatingSurfaces) return
+
         // 同 `agent/created`：异常绝不能外泄。`emit` 是同步分发，抛出去会打断触发方
         // （平台在 `recompose()` 里把整次 emit 包了 try，但别赌别人的边界）。
         try {
-            reconcileMainPresentations()
+            reconcileMainSurfaces('tools/change')
 
         } catch (err) {
             logger.warn?.(`[agent-studio] 预设切换补救失败，已跳过：${errText(err)}`)
+        }
+    }) as (...args: unknown[]) => void)
+
+    // 配置变更的重挂点：面板保存 / 手改配置文件之后，「预设 → 绑定」与工具集都可能变了。
+    // 这条只管重挂工具面——自建预设的注册表 sync 在 `index.ts` 那条同名监听里，两件事
+    // 分头走。
+    ctx.on('settings/document-updated', ((ns: unknown) => {
+        if (ns !== SETTINGS_NAMESPACE) return
+
+        try {
+            reconcileMainSurfaces('settings/document-updated')
+
+        } catch (err) {
+            logger.warn?.(`[agent-studio] 配置变更后重挂工具面失败，已跳过：${errText(err)}`)
         }
     }) as (...args: unknown[]) => void)
 
@@ -354,9 +390,9 @@ export function mountApply(ctx: Ctx, logger: Logger, settingsScope: SettingsScop
     /**
      * 按配置改写本次装配的产物；查不到配置就原样返回。
      *
-     * 这里每一步都踩在宿主内部结构上（预设服务的 scope 链、段与工具的形状、
-     * SDK 段的注册方法），任何一步失配都只该退回「不干预」而**不是**把异常
-     * 扔给调用方——那会让用户的这一次请求直接失败。边界包在调用点，见下。
+     * 这里每一步都踩在宿主内部结构上（预设服务的 scope 链、段与工具视图的形状），
+     * 任何一步失配都只该退回「不干预」而**不是**把异常扔给调用方——那会让用户的这一次
+     * 请求直接失败。边界包在调用点，见下。
      */
     const rewrite = async (result: AssembleResult, context: AssembleContext): Promise<AssembleResult> => {
         const agent = context?.agent as Agent
@@ -386,16 +422,6 @@ export function mountApply(ctx: Ctx, logger: Logger, settingsScope: SettingsScop
         // 判据只在这里算一次，落点在函数末尾那次 `contexts` 清空（未绑定 = 不干预，判据自然为假）。
         const snapshotOff = config?.runtimeContextOff?.includes(target?.agentId as string) === true
 
-        // Agent 模式（三档）：装配期这一次是**保状态**——创建窗口挂过的不重复挂
-        // （幂等），配置变过的（改了档 / 代理被解绑）在这里重挂或撤销；挂完对
-        // **下一次**装配生效（`wireSchemas` 在瀑布之前已求值）。
-        try {
-            applyToolPresentation(logger, ctx, agent, presentationOf(config, target?.agentId), target?.label ?? '未绑定（撤销声明）')
-
-        } catch (err) {
-            logger.warn?.(`[agent-studio] Agent 模式处理失败，已跳过：${errText(err)}`)
-        }
-
         if (target === undefined) {
             reportFirstDecision([
                 `预设=${presetId}`,
@@ -415,33 +441,32 @@ export function mountApply(ctx: Ctx, logger: Logger, settingsScope: SettingsScop
             logger.warn?.(`[agent-studio] 技能面处理失败，已跳过：${errText(err)}`)
         }
 
-        const tools = ctx.get?.('tools')
+        const tools = ctx.get?.('tools') as ToolService | undefined
         let next = result
 
-        // 工具面：只有「创建窗口没挂过」的（主代理、没有映射的子代理）才在装配期挂视图收窄。
-        // 创建窗口已挂过的子代理不挂第二道 restrict（交集打架）；它的 guard 在创建窗口挂、
-        // 声明层裁剪则由下面这一步统一负责。
+        // 工具面：第 4 道兜底。创建窗口与两个重挂点正常都挂过了，这里幂等跳过；剩下的只有
+        // 「创建窗口那一刻还拿不到工具服务」的主代理，以及没有映射的子代理。
         if (target.runtimeSurface && tools !== undefined) {
-            if (applyToolSurface(logger, tools as ToolService, agent, target.tools, target.label)) {
-                refreshSdkSection(tools as ToolService, context, result)
-            }
+            applyToolSurface(logger, tools, agent, target.tools, target.label)
         }
 
-        // 声明层裁剪：本次装配的 `assembly.tools` 是在瀑布之前求值的，光靠视图挡不住第一次；
-        // 这里按同源判据把声明也裁一遍——**对所有路径生效**（含创建窗口已挂的子代理），
-        // 它同时是收「agent 本层工具」（subagent / list_subagent_models，restrict 收不动）
-        // 的投递层手段。
-        const schemas = restrictToolSchemas(result?.tools, target.tools)
-        if (schemas !== undefined) next = { ...next, tools: schemas }
-
-        // SDK 声明正文（PTC 下模型唯一的工具知识来源）走的是另一条投递通道，上面那步
-        // 管不到它；按同一判据再裁一道，让本层漏网工具连「能看」都不剩。
+        // SDK 声明正文（PTC 下模型唯一的工具知识来源）走的是另一条投递通道，
+        // 视图收窄管不到它；按同一判据裁一道，让本层漏网工具连「能看」都不剩。
         let sdkRemovedNames: string[] = []
         if (tools !== undefined) {
-            sdkRemovedNames = stripSdkSectionText(tools as ToolService, agent, target.tools, next, target.label)
+            sdkRemovedNames = stripSdkSectionText(tools, agent, target.tools, next, target.label)
         }
 
-        const declared = `声明 ${result?.tools?.length ?? 0}→${next?.tools?.length ?? 0}`
+        // 平台声明由 provider 在进瀑布之前按视图收齐、瀑布返回后又覆盖回产物里，所以数它
+        // 只能读视图（瀑布收到的 `result` 里没有 tools）。
+        let declaredCount = 0
+        try {
+            declaredCount = tools?.view(agent).visible?.size ?? 0
+
+        } catch {
+            // 视图读不到就报 0：这一行是排障信息，不该让它把装配带塌。
+        }
+        const declared = `平台声明 ${declaredCount} 条`
 
         // 段面：**绑定即接管**（覆盖语义）——清单即投递的全部内容，没列出的平台预设一律
         // 不投递；一个集都没装 = 投递空清单（`mergeSections` 返回 undefined）。
@@ -492,6 +517,21 @@ export function mountApply(ctx: Ctx, logger: Logger, settingsScope: SettingsScop
 }
 
 /**
+ * 主代理那套面的 label。
+ *
+ * 它是 `applyToolSurface` 幂等签名（`label + 0x00 + 策略`）的一半：`resolveTarget`
+ * （装配期兜底）与 `mainSurfaceOf`（创建窗口 + 两个重挂点）必须给出**逐字相同**的字符串，
+ * 差一个字就会被当成「面变了」反复重挂，restrict 跟着反复 dispose/apply。
+ *
+ * @param presetId - 该 agent 所在的预设 id。
+ * @param agentId - 该预设绑定的主代理 id。
+ * @returns 日志与幂等签名共用的 label。
+ */
+function mainSurfaceLabel(presetId: string | undefined, agentId: string | undefined): string {
+    return `预设=${presetId} · 主代理=${agentId}`
+}
+
+/**
  * 该 agent 这次该用哪套面。
  *
  * 两个来源，按优先级：
@@ -532,11 +572,35 @@ function resolveTarget(config: StudioConfig | undefined, agent: Agent, presetId:
         agentId,
         label: isClaimedChild
             ? `子代理=${agentId}`
-            : `预设=${presetId} · 主代理=${agentId}`,
+            : mainSurfaceLabel(presetId, agentId),
         runtimeSurface,
         sections: mergeSections(config, agentConfig.promptSets),
         tools: toolPolicyOf(config, agentConfig.toolSets),
         skills: skillPolicyOf(config, agentConfig.skillSets),
+    }
+}
+
+/**
+ * 一个**主代理**此刻该被接管成什么样：工具名清单 + 这套面的 label。
+ *
+ * 三个提前挂点（创建窗口 / 配置变更 / 切预设）共用它，就是为了让 `applyToolSurface` 的
+ * 幂等签名在三处逐字相同——label 各自拼一遍，装配期那次就会与创建窗口那次对不上，
+ * 于是每次装配都整体重挂一遍。
+ *
+ * @param ctx - 插件所在的 context（预设解析要用 `agentPresets`）。
+ * @param config - 插件配置。
+ * @param agent - 目标主代理。
+ * @returns 工具面；该主代理解析不出预设 / 没有绑定 / 代理已被删时 undefined（= 不接管）。
+ */
+function mainSurfaceOf(ctx: Ctx, config: StudioConfig | undefined, agent: Agent): { tools: SurfacePolicy; label: string } | undefined {
+    const presetId = resolvePresetId(ctx, agent?.ctx)
+    const agentId = boundAgentId(config, presetId)
+    const agentConfig = agentById(config, agentId)
+    if (agentConfig === undefined) return undefined
+
+    return {
+        tools: toolPolicyOf(config, agentConfig.toolSets),
+        label: mainSurfaceLabel(presetId, agentId),
     }
 }
 
@@ -679,27 +743,19 @@ function mountChildToolSurface(logger: Logger, agent: Agent, toolNames: string[]
  * @param tools - 工具服务。
  * @param agent - 要收窄的 agent，同时是 scope key。
  * @param policy - 这次要用的工具名清单（空清单 = 一个都不给）。
- * @param label - 这套面属于谁，用于日志与拒绝原因。
- * @returns 视图是否**刚刚**被改动——调用方据此决定要不要重生 SDK 段。
+ * @param label - 这套面属于谁，用于日志、拒绝原因与幂等签名。
  */
-function applyToolSurface(logger: Logger, tools: ToolService, agent: Agent, policy: SurfacePolicy, label: string): boolean {
+function applyToolSurface(logger: Logger, tools: ToolService, agent: Agent, policy: SurfacePolicy, label: string) {
     const applied = appliedSurfaces.get(agent)
 
     // 内容签名而不是引用比较：设置服务每次解析都给出新的快照对象，
     // 比引用会让每次装配都当成「配置变了」白重挂一遍。
     const signature = `${label}\u0000${policy.join('\u0000')}`
-    if (applied !== undefined && applied.signature === signature) return false
+    if (applied !== undefined && applied.signature === signature) return
 
-    const hadApplied = applied !== undefined
-    if (applied !== undefined) {
-        for (const dispose of applied.disposers) dispose()
-        appliedSurfaces.delete(agent)
-    }
+    withdrawToolSurface(agent)
 
-    // 撤掉面也是「视图刚被改动」——旧的收窄摘下来之后，SDK 段同样得按新视图重生，
-    // 否则撤销的那一次装配里，模型看到的 SDK 正文还是收窄后那份。所以这里返回
-    // `hadApplied`：只要刚刚撤过东西，就值得重生一次。
-    if (tools?.view === undefined || tools.restrict === undefined) return hadApplied
+    if (tools?.view === undefined || tools.restrict === undefined) return
 
     // 集合在挂载时成形：guard 跑在执行期热路径上，别在里头反复建集合。
     const keepNames = new Set(policy)
@@ -722,12 +778,13 @@ function applyToolSurface(logger: Logger, tools: ToolService, agent: Agent, poli
     }
 
     // restrict 只能点名「当场可收窄」的名字（视图校验，错一个整次抛错）；
-    // 本层工具与晚注册的继承工具交给声明层裁 + guard。
+    // 本层工具与晚注册的继承工具只能靠 guard 拦（声明层没有落点）。
     const deny = [...readRestrictableNames(tools, agent)].filter(isDenied)
 
     const agentCtx = agent.ctx as AgentScope
     const disposers: Array<() => void> = []
 
+    mutatingSurfaces = true
     try {
         if (deny.length > 0) disposers.push(agentCtx.tools!.restrict({ deny }))
         disposers.push(agentCtx.tools!.guard(denyReason))
@@ -736,43 +793,38 @@ function applyToolSurface(logger: Logger, tools: ToolService, agent: Agent, poli
         // 收窄失败只撤销收窄本身，段过滤照常生效——比整个改写退回要精细。
         for (const dispose of disposers) dispose()
         logger.warn?.(`[agent-studio] 工具面收窄失败，已退回不干预：${errText(err)}`)
-        return false
+        return
+
+    } finally {
+        mutatingSurfaces = false
     }
 
     appliedSurfaces.set(agent, { signature, disposers })
     logger.info?.(`[agent-studio] 已收窄 agent ${agent.id} 的工具面 · ${label} · 收起 ${deny.length} 个 · guard 兜底已挂`)
-    return true
 }
 
 /**
- * 裁掉本次装配要投递给模型的工具声明里不在工具集里的那些。
+ * 撤掉该 agent 已挂的工具面收窄。
  *
- * **为什么光靠视图收窄不够。** `assembly.tools` 由工具服务的 schema provider 在瀑布
- * **之前**求值，而视图收窄是瀑布里才挂上的——于是某个 agent 的**第一次**装配拿到的仍是
- * 未收窄的全量声明；而且 `restrict()` 按设计收不动 **agent 本层** 注册的工具
- * （`subagent`/`list_subagent_models`）。声明层是这两类漏网的共同解药：投递什么，我们说了算。
+ * 两个去处都非撤不可：重挂前要先摘旧的（`restrict`/`guard` 之间是叠加语义，叠着挂会
+ * 互相交集），绑定被解除后要撤得掉（否则「不干预」变成「按旧配置继续收」）。
  *
- * 判据与 `applyToolSurface` 同源：**不在工具集里、又不是机制工具的一律裁**。
- * 机制工具（`run_code`/`structured_output`）永不裁。
- *
- * @param schemas - 本次装配要投递的工具声明。
- * @param policy - 这次要用的工具名清单（空清单 = 全裁）。
- * @returns 裁过的声明；没有可裁的（一个都没被排除）返回 undefined。
+ * @param agent - 目标 agent，同时是收窄记表的键。
  */
-function restrictToolSchemas(schemas: ToolSchema[] | undefined, policy: SurfacePolicy): ToolSchema[] | undefined {
-    if (!Array.isArray(schemas)) return undefined
+function withdrawToolSurface(agent: Agent) {
+    const applied = appliedSurfaces.get(agent)
+    if (applied === undefined) return
 
-    const keepNames = new Set(policy)
+    mutatingSurfaces = true
+    try {
+        for (const dispose of applied.disposers) dispose()
 
-    const kept = schemas.filter((schema) => {
-        const name = schema?.name
-        if (typeof name !== 'string') return true
-        if (MECHANISM_TOOL_NAMES.has(name)) return true
+    } finally {
+        mutatingSurfaces = false
+    }
 
-        return keepNames.has(name)
-    })
-
-    return kept.length === schemas.length ? undefined : kept
+    appliedSurfaces.delete(agent)
+    trace(`工具面撤回 · agent=${agent?.id ?? '无'}`)
 }
 
 /**
@@ -865,156 +917,6 @@ async function applySkillSurface(logger: Logger, agent: Agent, policy: SurfacePo
  * 改成在瀑布里清 `contexts` 之后，落点不再依赖任何 scope 推断。
  */
 
-// ── 工具呈现（三档开关：跟随预设 / 原生 / 强制 PTC）────────────────────────
-
-/**
- * 解析某个 agent 该用的Agent 模式。
- *
- * 缺省（没配 / 代理已删 / 还没解析出绑定）= `follow`：插件不声明，跟随预设。
- * `native` / `ptc` 是本 agent 的强制档——就近 scope 覆盖预设层的声明
- * （平台注释明确支持「PTC 部署下 opt out 的 agent」，两层声明不冲突）。
- *
- * @param config - 插件配置。
- * @param agentId - 代理 id；undefined 时返回 `follow`。
- * @returns 归一化后的三档值。
- */
-function presentationOf(config: StudioConfig | undefined, agentId: string | undefined): ToolPresentation {
-    const value = agentById(config, agentId)?.toolPresentation
-    if (value === 'native' || value === 'ptc') return value
-
-    return 'follow'
-}
-
-/**
- * 该 agent 现在的**有效呈现**是否已经不是原生（工具面走了 PTC 传输）。
- *
- * 平台约定（`dsh-tools` 的 `view()`）：非 native 模式会把 `run_code` 附加进可见工具面，
- * native 不会 ⇒ 可见面里已有 `run_code`，就说明这条 scope 链上已经有「非原生」的声明
- * 在生效——至于那份声明是谁挂的（我们上次的 / 同 scope 的其它会话 / 预设自己）不关心。
- *
- * 读不到视图时按「不是」处理：宁可多挂一次（挂了会撞冲突、上层记一条 warn），也不要
- * 因为读不到就漏挂——漏挂意味着这个 agent 悄悄退回原生，那才是真的静默失效。
- *
- * @param agent - 目标 agent，同时是视图的 scope key。
- * @returns 可见面里是否已有 `run_code`。
- */
-function presentsPtc(agent: Agent): boolean {
-    try {
-        return agent?.ctx?.tools?.view(agent)?.visible?.has('run_code') === true
-
-    } catch {
-        return false
-    }
-}
-
-/**
- * 声明 / 撤销该 agent 的工具呈现模式（三档开关的落点）。
- *
- * **幂等与撤销**：平台的 `presentAs` 在同一 scope 上只能声明一次（同一 layer 上
- * 二次声明直接抛错），返回的是「恢复部署默认」的精确 disposer。所以这里有三种走法：
- * 同模式 => 跳过；换档 / 撤销 => 先 dispose 再决定挂不挂。
- *
- * **为什么要先探 `ptcRuntime`**：`ptc` 档下宿主装配期（`wireSchemas`）会向运行时
- * 要 SDK 渲染器，环境里没有 `ctx.ptcRuntime` 就**直接抛错**——那会打断用户这一次
- * 请求。宁可不生效（退回不干预），也不能让装配炸掉。
- *
- * **服务名凭据**（2026-09-19 实测）：运行时由 `dsh-ptc-runtime-node` 提供，服务名是
- * `ptcRuntime`（`dsh-ptc-runtime` 的 `PtcRuntime extends Service` 里 `super(ctx,
- * 'ptcRuntime')`）；平台**没有** `codeRuntime` 这个名字——曾照它探测，导致强制 PTC
- * 恒被误判成「环境无运行时」而永不生效（自检替身也跟着写错，两边一起绿）。
- *
- * **挂载时机**：调用方是「创建窗口」（`agent/created`）与「预设切换补救」
- * （`tools/change`，见 `reconcileMainPresentations`）；装配期那一次只是保状态。
- * `presentAs` 影响 `wireSchemas` 与 SDK 段正文，两者在 `assemble()` 前半段
- * 求值，装配期挂只对**下一次**生效（同「挂载要趁早」那个坑）。
- *
- * @param logger - 用于报错与诊断的 logger。
- * @param ctx - 插件所在的 context（用全局视角探 `ptcRuntime`）。
- * @param agent - 目标 agent，同时是声明要落的 scope key。
- * @param mode - 三档值；`follow` = 撤销已有声明。
- * @param label - 这个决定属于谁，用于日志。
- */
-function applyToolPresentation(logger: Logger, ctx: Ctx, agent: Agent, mode: ToolPresentation, label: string) {
-    const applied = appliedPresentations.get(agent)
-
-    if (mode === 'follow') {
-        if (applied === undefined) return
-
-        applied.dispose()
-        appliedPresentations.delete(agent)
-        trace(`呈现 · 撤销 · agent=${agent?.id ?? '无'} · ${label}`)
-        logger.info?.(`[agent-studio] 已恢复 agent ${agent.id} 的预设默认呈现 · ${label}`)
-        return
-    }
-
-    if (applied?.mode === mode) return
-
-    if (applied !== undefined) {
-        applied.dispose()
-        appliedPresentations.delete(agent)
-    }
-
-    if (mode === 'ptc' && ctx.get?.('ptcRuntime') === undefined) {
-        trace(`呈现 · 缺 ptcRuntime，放弃强制 ptc · agent=${agent?.id ?? '无'}`)
-        logger.warn?.(`[agent-studio] 环境没有 ptcRuntime，无法强制 PTC，保持预设默认 · ${label}`)
-        return
-    }
-
-    const tools = agent?.ctx?.tools
-    if (typeof tools?.presentAs !== 'function') {
-        trace(`呈现 · 拿不到 presentAs（agent.ctx.tools=${tools === undefined ? 'undefined' : typeof tools}）`)
-        return
-    }
-
-    try {
-        appliedPresentations.set(agent, { mode, dispose: tools.presentAs(mode) })
-        trace(`呈现 · 挂上 ${mode} · agent=${agent?.id ?? '无'} · ${label}`)
-        logger.info?.(`[agent-studio] 已声明 agent ${agent.id} 的Agent 模式：${mode} · ${label}`)
-
-    } catch (err) {
-        // 「这个 scope 上已有一份声明」不是故障，是**切预设路径上的常态**：真机 trace 里
-        // 切预设的第一次挂载常撞上它（`one composition selects one presentation`），
-        // 几毫秒后同一份又消失、下一次遍历就挂上了（2026-09-19 复现三次，机制像平台
-        // `recompose()` 的 rebind 中间态，未彻查——但行为可依赖）。
-        // 对「强制 PTC」这个目标而言，**只要该 agent 的有效呈现已经不是原生，状态就已
-        // 达成**：那份声明是平台中间态造的、别的会话挂的、还是预设自己带的，都不重要
-        // ——不需要（也不该）由我们再声明一次。
-        // **不记表**：声明不归我们持有，将来撤销只撤自己挂的那份（记了会误撤别人的）；
-        // 而「视为达成」不记表 ⇒ 之后每次 `tools/change` 都会重试一次，「中间态那份」
-        // 消失后自然补挂（trace 里 2ms 后那次「挂上」就是它）。
-        // 判据用有效视图：非 native 模式才把 `run_code` 附加进可见面（平台约定，见
-        // `dsh-tools` 的 `view()`）；读不到视图按「未达成」处理——宁可多报一条 warn，
-        // 也别把「其实没成」当成成。
-        if (mode === 'ptc' && presentsPtc(agent)) {
-            trace(`呈现 · 同 scope 已有声明，视为达成 · agent=${agent?.id ?? '无'} · ${label}`)
-            return
-        }
-
-        trace(`呈现 · 挂载抛错：${errText(err)} · agent=${agent?.id ?? '无'} · ${label}`)
-        logger.warn?.(`[agent-studio] Agent 模式声明失败，保持预设默认：${errText(err)}`)
-    }
-}
-
-/**
- * 给一个**主代理**按「预设 → 绑定代理」声明 Agent 模式（三档开关）。
- *
- * 两个调用点共用：创建窗口（`agent/created`）与预设切换补救（`tools/change`）。
- * 未绑定 / 解析不出预设 ⇒ `follow` ⇒ 撤销已有声明——对没挂过的 agent 是零动作
- * （幂等表里没有它），对「绑定过又被解绑」的 agent 才是撤销。
- *
- * @param ctx - 插件所在的 context。
- * @param logger - 用于报错与诊断的 logger。
- * @param config - 插件配置。
- * @param agent - 目标主代理。
- * @param source - 这次调用是打哪儿来的（进日志与 trace，排障对齐时序用）。
- */
-function applyMainPresentation(ctx: Ctx, logger: Logger, config: StudioConfig | undefined, agent: Agent, source: string) {
-    const presetId = resolvePresetId(ctx, agent?.ctx)
-    const agentId = boundAgentId(config, presetId)
-
-    applyToolPresentation(logger, ctx, agent, presentationOf(config, agentId), `主代理=${agentId ?? '未绑定'} · 来源=${source}`)
-}
-
 /**
  * 读某 agent 视图层能收窄的工具名。
  *
@@ -1040,29 +942,6 @@ function readRestrictableNames(tools: ToolService, agent: Agent): Set<string> {
 }
 
 /**
- * 收窄**刚**挂上时，本次装配构造出的 `tools:sdk` 正文还是按旧视图生成的
- * ——它的 `text` 在瀑布之前就被 `assemble()` 求值了。就地重生一份，
- * 免得该 agent 的第一次装配把已收起的工具写进 SDK 声明。
- *
- * `sdkSection()` 是宿主工具服务的公开方法，每次调用返回一份新的段注册，
- * 其 `text(context)` 按**当前**视图求值，所以重调一次即可。
- *
- * @param tools - 工具服务。
- * @param context - 本次装配的 context（`text` 需要它的 `scope`）。
- * @param result - 本次装配的产物，就地替换 SDK 段的正文。
- */
-function refreshSdkSection(tools: ToolService, context: unknown, result: AssembleResult) {
-    const sections = result?.sections
-    if (!Array.isArray(sections)) return
-
-    const sdkSection = sections.find((section) => section?.name === 'tools:sdk')
-    if (sdkSection === undefined) return
-
-    const text = tools?.sdkSection?.()?.text?.(context)
-    if (typeof text === 'string') sdkSection.text = text
-}
-
-/**
  * 把 `tools:sdk` 段正文里「收不动、又调不了」的工具删掉，让声明与执行一致。
  *
  * **为什么单有一道**：SDK 正文照当前视图生成，而 `restrict()` 按设计只收继承面
@@ -1074,7 +953,7 @@ function refreshSdkSection(tools: ToolService, context: unknown, result: Assembl
  * 幂等的（没有目标名字就原样返回），开销只有一次视图读取与一次子串检查。
  *
  * 视图读不到时静默跳过（与 `restrict`/`guard` 的「读不到视图就放手」一致）；
- * 段不存在（原生呈现、或清单里没点名 `tools:sdk`）时同样不动。
+ * 段不存在（清单里没点名 `tools:sdk`，或该预设没挂 PTC 执行器）时同样不动。
  *
  * @param tools - 工具服务。
  * @param agent - 目标 agent，同时是视图的 scope key。

@@ -92,9 +92,15 @@ interface ToolsService {
     register: AttributableRegister
 }
 
-/** `tools.register` 的形状，带一层 `attributedOriginal` 标记（本插件与 dsh-context 都往它上挂）。 */
+/**
+ * `tools.register` 的形状，带一层 `attributedOriginal` 标记（本插件与 dsh-context 都往它上挂）。
+ *
+ * 调用签名**按原样转发全部实参**：0.2.2 的 `register(definition, options)` 第二个参数是
+ * `{ when }`（`web_search` / `web_fetch` 这类条件工具靠它按 step 生效），只声明一个形参
+ * 会把条件吞掉。
+ */
 interface AttributableRegister {
-    (definition: unknown): unknown
+    (...args: unknown[]): unknown
     attributedOriginal?: AttributableRegister
 }
 
@@ -149,12 +155,12 @@ export function mountAttribution(ctx: Ctx, logger: Logger): { ownerOf(name: stri
         const original = (register as AttributableRegister).attributedOriginal ?? (register as AttributableRegister)
         if (typeof original !== 'function') return
 
-        const wrappedRegister: AttributableRegister = function (this: unknown, definition: unknown): unknown {
+        const wrappedRegister: AttributableRegister = function (this: unknown, ...args: unknown[]): unknown {
             const owner = readerName()
-            const def = definition as { name?: string }
+            const def = args[0] as { name?: string } | undefined
             if (owner !== undefined && typeof def?.name === 'string') live.set(def.name, owner)
 
-            return (original as AttributableRegister).call(this, definition)
+            return original.apply(this, args)
         }
         wrappedRegister.attributedOriginal = original
         svc.register = wrappedRegister

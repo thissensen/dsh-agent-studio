@@ -44,16 +44,17 @@
  * 判定是 **OR**：一项阻塞就整批阻塞。一批里混着两种档位时，若只等阻塞那几项，不阻塞那几项
  * 的结果就没人接收了。`undefined` 与 `'always-background'` 都不阻塞。
  *
- * ## 一律转存：文件一份，在线也一份
+ * ## 一律转存：文件一份，对话里只留落点
  *
  * 一批阻塞派活的正文能长到进不了对话：平台对单条工具结果有内联上限，超了模型拿到的是被
  * 自己 `JSON.stringify(...).slice(0, 20000)` 切过的半截，而它并不知道少了后半截。
  *
- * 口径（v2，用户定）：**每个阻塞批都整批写进一个文件**（不管多短），同时返回值与对话照旧
- * 给全文——在线那份的首行声明总行数与字符数并写出文件路径，末行写「全文完」。不再判「超没超
+ * 口径（v2.1，用户定）：**每个阻塞批都写一个文件**（不管多短；文件只收成功项的正文），对话里
+ * 只留落点行、子代理会话 id 行与失败项清单，**正文一个字都不进对话**。返回值里的结果项同样
+ * 不带正文：写盘前就把 `output` 摘掉，正文只活在盘上那份文件里。不再判「超没超
  * 平台上限」，也不再读那个上限：读法会随平台升版静默失效，而失效后的行为（每批都写）与
- * 一律写没有区别，留一条分支只是多一个无声的岔路。写不进去时只把首行换成
- * 「文件没写成（原因）」，正文不回退。
+ * 一律写没有区别，留一条分支只是多一个无声的岔路。写不进去时落点行换成
+ * 「文件没写成（原因）」，**也不回填正文**（不兜底：这一批的正文就是没写下来）。
  *
  * 为什么不写在 `render` 里：`render` 是同步的，写盘只能在 `execute` 里做。
  *
@@ -80,12 +81,12 @@ import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 import type { AgentConfig, Ctx, Logger, SettingsScope, StudioConfig } from './types.js'
-import type { DelegateBatchItem, DelegateStartItem, DispatchNote, ModelAgent, SubagentActivation } from './delegate-batch.js'
+import type { DelegateBatchEntry, DelegateBatchItem, DelegateStartItem, DispatchNote, ModelAgent, SubagentActivation } from './delegate-batch.js'
 
 import { agentById, boundAgentId } from './config.js'
 import {
+    batchResultText,
     errorText,
-    inlineBatchText,
     settledItem,
     spillFileText,
     startFailureItem,
@@ -138,9 +139,11 @@ interface SubagentProvider {
  * 显式声明而不是靠推断：没有它 `kind` 会被推成 `string`，与 schema 里那两个
  * `const` 字面量对不上——平台按 `InferValue<O>` 校验 `execute` 的返回类型。
  *
- * 阻塞批的结果项**始终带正文**（v2 起不再摘掉 `output`）：写文件成功时整个值多一个
- * `filePath`，写盘失败时多一个 `fileError`。两个键说的是「同一份正文在不在盘上」，
- * 与结果项里的正文**不互斥**。
+ * 阻塞批的结果项**不带正文**：正文只写进盘上那份 `.md`，写盘前就由 `execute` 把 `output` 摘掉。
+ * 写文件成功时整个值多一个 `filePath`，写盘失败时多一个 `fileError`；写失败也不回填正文
+ * （用户定：不兜底——正文要么在文件里，要么这一批就是没写下来）。
+ *
+ * 阻塞批的对话文本只有落点行、子代理行与失败项清单；对话与返回值都不含正文。
  */
 type DelegateResult =
     | { kind: 'started'; items: DelegateStartItem[] }
@@ -403,7 +406,7 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
             tasks: {
                 type: 'array',
                 required: true,
-                description: 'One entry per subagent — a single dispatch is a one-entry array. Entries start together; whether this call waits depends on each target agent\'s own background mode.',
+                description: 'One entry per subagent — a single dispatch is a one-entry array. Entries start together; whether this call waits depends on each target agent\'s own background mode. A waiting call writes the batch\'s successful bodies to a file under the system temp dir; the text you see carries only that path plus any failed entries. A non-waiting call writes no file.',
                 items: {
                     type: 'object',
                     additionalProperties: false,
@@ -454,7 +457,6 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
                                     subagentId: { type: 'string' },
                                     ok: { type: 'boolean', required: true },
                                     description: { type: 'string' },
-                                    output: { type: 'array', items: { type: 'json' } },
                                     error: { type: 'string' },
                                 },
                             },
@@ -470,10 +472,10 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
                     return [{ type: 'text', text: startedText(result.items, settingsScope.get()) }]
                 }
 
-                // 写盘只能在 execute 里做（render 是同步的），这里只把「声明行 + 全文 + 末行」拼一次。
-                const 在线正文 = inlineBatchText(result.results, settingsScope.get(), { filePath: result.filePath, fileError: result.fileError })
+                // 写盘只能在 execute 里做（render 是同步的），这里只把「落点行 + 失败项」拼一次。
+                const 对话正文 = batchResultText(result.results, settingsScope.get(), { filePath: result.filePath, fileError: result.fileError })
 
-                return [{ type: 'text', text: 在线正文 }]
+                return [{ type: 'text', text: 对话正文 }]
             },
         },
         isConcurrencySafe: () => true,
@@ -577,7 +579,7 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
                 // 全部起来之后一次性等结算：并发在平台侧（子代理各自跑），这里只等它们各自落地。
                 const settled = await Promise.allSettled(launched.map((record) => record.activation!.result))
 
-                const results = new Map<number, DelegateBatchItem>()
+                const results = new Map<number, DelegateBatchEntry>()
                 let cancelReason: unknown = undefined
 
                 for (const [position, outcome] of settled.entries()) {
@@ -608,7 +610,12 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
 
                 if (results.size !== targets.length) throw Error('批量派活内部错误：有任务没拿到结果。')
 
-                const 结果组 = targets.map((_target, index) => results.get(index)!)
+                const 结果组: DelegateBatchEntry[] = targets.map((_target, index) => results.get(index)!)
+
+                // 对外项摘掉正文：正文只在盘上那份文件里，写盘失败也不回填（不兜底）。必须用解构
+                // 删键，不能写 `output: undefined`——平台对返回值做 lossless JSON 快照，值为
+                // undefined 的键会让整次输出判非法（坑册坑 55）。
+                const 对外结果组: DelegateBatchItem[] = 结果组.map(({ output: _正文, ...item }) => item)
 
                 // 目录与平台 spill 同构（会话 id 短哈希），但不复用它那个私有根（那是它自己 mkdtemp 出来的）。
                 // 文件名取 UTC 时间戳：纯 ASCII、字典序即时间序。不主动清理——文件是给模型读的。
@@ -621,11 +628,11 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
                     await mkdir(目录, { recursive: true })
                     await writeFile(文件路径, spillFileText(结果组, config), 'utf8')
 
-                    return { kind: 'foreground-batch', results: 结果组, filePath: 文件路径 }
+                    return { kind: 'foreground-batch', results: 对外结果组, filePath: 文件路径 }
 
                 } catch (err) {
-                    // 写不进去不改形状：结果项照旧带全文，render 只把首行换成「文件没写成（原因）」。
-                    return { kind: 'foreground-batch', results: 结果组, fileError: errorText(err) }
+                    // 写不进去就只改落点行：正文不回填进返回值（不兜底），这一批的正文就是没写下来。
+                    return { kind: 'foreground-batch', results: 对外结果组, fileError: errorText(err) }
                 }
 
             } finally {

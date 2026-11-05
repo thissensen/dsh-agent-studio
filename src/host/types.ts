@@ -21,16 +21,6 @@
  */
 export type BackgroundMode = 'always-background' | 'foreground' | 'model-decides'
 
-/**
- * Agent 模式（Agent 级三档，2026-09-18 用户拍板；界面文案从「工具调用方式」改为「Agent 模式」）：
- * `follow` = 跟随预设（插件不声明）；`native` = 本 agent 一律不用 PTC；
- * `ptc` = 一律用 PTC（即使预设不是）。
- *
- * 机制：`agent.ctx.tools.presentAs(mode)`——就近 scope 覆盖预设层的声明
- * （声明在不同层，不冲突；同一 scope 只能声明一次，重复挂会抛错，见 apply.ts 的幂等）。
- */
-export type ToolPresentation = 'follow' | 'native' | 'ptc'
-
 /** 段配置：`name` 对应平台的 section 名；带 `text` 的是自定义段。 */
 export interface SectionConfig {
     name?: string
@@ -56,8 +46,6 @@ export interface AgentConfig {
     /** 备用候选（有序）：主选失败后依次顶上。空 = 自动降级不接管。 */
     fallbacks?: ModelConfig[]
     background?: BackgroundMode
-    /** Agent 模式：`follow`（默认）不干预；`native`/`ptc` 对本 agent 强制。 */
-    toolPresentation?: ToolPresentation
     promptSets?: string[]
     toolSets?: string[]
     skillSets?: string[]

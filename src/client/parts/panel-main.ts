@@ -6,7 +6,7 @@
 import * as React from 'react'
 import type { ChangeEvent } from 'react'
 import { Button, Input, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { BackgroundMode, ToolPresentation } from '../../host/types'
+import type { BackgroundMode } from '../../host/types'
 import { ROW_SPACER, ROW_TAIL, STYLE } from '../styles'
 import { useT } from './panel-translate'
 import type {
@@ -26,7 +26,6 @@ import {
     ConfigCard,
     FieldRow,
     HelpTip,
-    TOOL_PRESENTATIONS,
     choiceOptions,
     h,
     moveButtons,
@@ -60,21 +59,6 @@ export function AgentPanel(props: AgentPanelProps) {
         key: 'identity',
         title: t('agent.identity'),
         children: [
-            // 三档「Agent 模式」（用户点名）：声明落在 agent 自己的 scope 上，
-            // 就近覆盖预设层的呈现——主代理与子代理各设各的，互不影响。
-            // `Choice<ToolPresentation>` 是显式实例化：泛型函数直接交给 createElement
-            // 时类型实参会退化成约束（string），那样 onChange 的值域就丢了。
-            h(FieldRow, {
-                key: 'presentationRow',
-                label: t('agent.presentation'),
-                children: h(Choice<ToolPresentation>, {
-                    key: 'choice',
-                    options: choiceOptions(TOOL_PRESENTATIONS, t),
-                    value: agent.toolPresentation,
-                    onChange: (toolPresentation) => onPatch({ toolPresentation }),
-                }),
-            }),
-            h('div', { key: 'presentationHint', style: STYLE.hint }, t('agent.presentationHint')),
             h(IdEditor, {
                 key: 'id',
                 id: agent.id,

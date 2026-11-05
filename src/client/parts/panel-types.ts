@@ -9,7 +9,8 @@ import type {
     CSSProperties,
     ChangeEvent,
 } from 'react'
-import type { StudioConfig, BackgroundMode, ToolPresentation } from '../../host/types'
+import type { StudioConfig, BackgroundMode } from '../../host/types'
+import type { PresetPresentation } from '../../host/preset-presentation'
 
 // ── 部件各模块共用的类型：从 /api/dsh-agent-studio/* 取回与草稿归一化后的数据形状 ──────
 
@@ -81,6 +82,14 @@ export interface Preset {
     promptFixed?: boolean
     /** 预设自己关了运行时快照（`includeRuntimeContext: false`）——快照开关据此禁用。 */
     snapshotFixed?: boolean
+    /** 当前档；host 读不出来时一律回 `inherit`（原因见 `presentationProblem`）。 */
+    presentation?: PresetPresentation
+    /** 命中的是旧写法（`dsh-agent-tool-presentation` + `mode`）。 */
+    presentationLegacy?: boolean
+    /** 这份构成让不让插件改——与 `writable`（归属判据）是两个维度。 */
+    presentationEditable?: boolean
+    /** `presentationEditable === false` 的原因（host 给的中文，可直接展示）。 */
+    presentationProblem?: string | null
 }
 
 /** 段的可编辑副本（草稿内；没正文的段不写 `text` 键）。 */
@@ -112,7 +121,6 @@ export interface DraftItem {
     /** 每个候选各自的重试上限（自动降级用）。 */
     maxRetries: number
     background: BackgroundMode
-    toolPresentation: ToolPresentation
     promptSets: string[]
     toolSets: string[]
     skillSets: string[]
@@ -158,7 +166,6 @@ export interface RawAgent {
     fallbacks?: RawModel[]
     maxRetries?: number
     background?: BackgroundMode
-    toolPresentation?: ToolPresentation
     promptSets?: string[]
     toolSets?: string[]
     skillSets?: string[]
@@ -293,7 +300,7 @@ export interface ImportConfirm {
 
 // ── 组件 props 接口 ───────────────────────────────────────────────────
 
-/** 一排单选档位（后台模式、Agent 模式共用）；`T` 是各档自己的值域。 */
+/** 一排单选档位（后台模式用）；`T` 是各档自己的值域。 */
 export interface ChoiceProps<T extends string> {
     options: { id: T; label: string }[]
     value: T
@@ -409,6 +416,8 @@ export interface PresetBarProps {
     onCloseForm: () => void
     onCreatePreset: () => void
     onDeletePreset: () => void
+    /** 改当前预设的呈现方式：点选即写盘、不进草稿。 */
+    onSetPresentation: (next: PresetPresentation) => void
     /** 导出按钮：打开导出勾选树。 */
     onExport: () => void
     /** 导入按钮：直接点开隐藏的文件输入（覆盖开关在树弹窗里，不再先弹确认框）。 */
