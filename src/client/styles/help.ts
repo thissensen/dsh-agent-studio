@@ -35,6 +35,14 @@ export const HELP_ANCHOR: CSSProperties = {
 export const HELP_CARD: CSSProperties = {
     position: 'fixed',
     zIndex: 1100,
+    // 落点交给 CSS 锚点（平台 rc.2 淘汰了像素测量）：挂锚点正下方、右缘对齐锚点，放不下翻到上方；
+    // `marginBlock` 顶回原来 8px 的间距，翻到上方时同样成立。
+    // 行内轴必须显式写 `center`：只给 `bottom` 时行内轴铺满包含块（视口），`justify-self: end` 会贴到视口右缘
+    // （实测卡片右缘 1420、锚点右缘 626）；收成锚点宽度那一格后右缘才回锚点，上沿 288 = 锚点底 280 + 8。
+    positionArea: 'bottom center',
+    justifySelf: 'end',
+    positionTryFallbacks: 'flip-block',
+    marginBlock: '8px',
     boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',

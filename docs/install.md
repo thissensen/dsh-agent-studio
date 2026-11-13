@@ -3,7 +3,15 @@
 ## 环境要求
 
 - **DSH（DeepSeek Harness）**：纯 Web 版（`dsh --profile web`）与桌面版（`dsh --profile desktop`）都行——桌面版是 Web 版加一层 Electron 壳，host 半边同一套代码，平台版本要求也一样。
-- **版本**：需要 **DSH `0.2.2-rc.1` 及以上**（`engines.dsh` 与 `peerDependencies` 里的平台包**同串**写 `>=0.2.2-rc.1`）。这个下界写的是**全功能最低版本**：呈现方式与工具面走的是 0.2.2 的平台契约——呈现方式由预设里挂的那条工具执行器行决定，工具声明在 agent 创建窗口收窄。
+- **版本**：需要 **DSH `0.2.2-rc.2` 及以上**（`engines.dsh` 与 `peerDependencies` 里的平台包**同串**写 `>=0.2.2-rc.2`）。这个下界写的是**全功能最低版本**：呈现方式与工具面走的是 0.2.2 的平台契约——呈现方式由预设里挂的那条工具执行器行决定，工具声明在 agent 创建窗口收窄。
+- **rc.2 在 npm 的 `next` 通道**：`latest` 仍停在 rc.1，照它装平台就达不到上一条的下界，本插件随即被启动门禁整份跳过（表现为插件「消失」，不是崩溃）。装平台前先核对一次标签：
+
+  ```sh
+  npm view @deepseek-ai/dsh dist-tags          # 期望 next = 0.2.2-rc.2（latest 仍停在 rc.1）
+  npm install @deepseek-ai/dsh@next            # 或显式写 @deepseek-ai/dsh@0.2.2-rc.2
+  ```
+
+  平台到了 rc.2，再按下面「三条安装路线」装插件——顺序仍是先升平台、再升插件。
 - **装在达不到下界的平台上会怎样**：启动门禁**整份跳过**这个 bundle（日志里是 `skipping profile bundle "dsh-agent-studio"`），插件市场也会拦住这次更新——没有「装了半残」的中间态。升级时**先升平台、再升插件**：顺序反了，插件会在旧平台上被跳过，看起来像「消失」，不是崩溃。
 - 本插件不挑操作系统，Windows / macOS / Linux 都能用。
 
@@ -24,7 +32,7 @@ dsh plugin --profile web add dsh-agent-studio
 到 [Releases](https://github.com/thissensen/dsh-agent-studio/releases) 下载 `dsh-agent-studio-<版本>.tgz`——它就是 npm 上那份包，`lib/` 与 `client/` 的构建产物都在里面，不用自己构建：
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.2.1.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.2.2.tgz"
 ```
 
 包放在哪个目录都行，把路径写对即可（`./` 开头或绝对路径），文件名里的版本号换成你实际下载的那个。**离线、内网环境走这条。**

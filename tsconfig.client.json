@@ -11,5 +11,5 @@
         "forceConsistentCasingInFileNames": true,
         "types": []
     },
-    "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "types/*.d.ts"]
+    "include": ["src/client/**/*.ts", "src/client/**/*.tsx"]
 }

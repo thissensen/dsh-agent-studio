@@ -46,7 +46,7 @@ dsh plugin --profile web add dsh-agent-studio
 到 [Releases](https://github.com/thissensen/dsh-agent-studio/releases) 下载 `dsh-agent-studio-<版本>.tgz`，它就是 npm 上那份包，`lib/` 与 `client/` 的构建产物都在里面，不用自己构建：
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.2.1.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.2.2.tgz"
 ```
 
 包放在哪个目录都行，把路径写对即可（`./` 开头或绝对路径），文件名里的版本号换成你实际下载的那个。**离线、内网环境走这条。**
@@ -193,7 +193,7 @@ agent-studio:
 ## 兼容性
 
 - **目标环境**：纯 Web 版（`dsh --profile web`）与桌面版（`dsh --profile desktop`）都行——桌面版是 Web 版加一层 Electron 壳，host 半边同一套代码，平台版本要求也一样。
-- **依赖的宿主服务**：七个平台包写在 `peerDependencies` 里，并且**指明版本**（`>=0.2.2-rc.1`，与 `engines.dsh` 同串）——这是插件市场与平台判断「能不能装」的依据：版本不够时市场拦住更新、启动门禁整份跳过 bundle，而不是让你装完启动失败。只有 `schemastery` 是可选的。这个下界写的是**全功能最低版本**：呈现方式与工具面走的是 0.2.2 的平台契约。两个工具执行器包（`-native` / `-ptc`）不进 peer——插件只在预设构成里写执行器行，从不 import 它们。
+- **依赖的宿主服务**：七个平台包写在 `peerDependencies` 里，并且**指明版本**（`>=0.2.2-rc.2`，与 `engines.dsh` 同串）——这是插件市场与平台判断「能不能装」的依据：版本不够时市场拦住更新、启动门禁整份跳过 bundle，而不是让你装完启动失败。只有 `schemastery` 是可选的。这个下界写的是**全功能最低版本**：呈现方式与工具面走的是 0.2.2 的平台契约。两个工具执行器包（`-native` / `-ptc`）不进 peer——插件只在预设构成里写执行器行，从不 import 它们。
 - **界面语言与主题**跟随平台，自带中文 / English 两套文案，深色浅色都能看。
 - **client 半边零构建**：`client/index.js` 是壳（启动时加载），`client/parts/panel.js` 是面板（由 host 路由运行时按需伺服）。
 
@@ -213,8 +213,15 @@ agent-studio:
 
 ## 从上一版升级
 
-- **只支持 DSH `0.2.2-rc.1` 及以上**，没有为旧平台留兼容分支。
-- **先升平台、再升插件**：插件的最低版本高于你手上的平台时，启动门禁会把整份 bundle 跳过——插件看起来「消失」了，不是崩溃。
+- **只支持 DSH `0.2.2-rc.2` 及以上**，没有为旧平台留兼容分支。
+- **先升平台、再升插件**：插件的最低版本高于你手上的平台时，启动门禁会把整份 bundle 跳过——插件看起来「消失」了，不是崩溃。平台本体的 rc.2 只在 npm 的 `next` 通道上，`latest` 仍停在 rc.1——照 `latest` 装就达不到本插件要的下界。装平台前先核对一次标签：
+
+  ```sh
+  npm view @deepseek-ai/dsh dist-tags          # 期望 next = 0.2.2-rc.2（latest 仍停在 rc.1）
+  npm install @deepseek-ai/dsh@next            # 或显式写 @deepseek-ai/dsh@0.2.2-rc.2
+  ```
+
+  平台到了 rc.2，再按上面的「安装」装插件——顺序仍是先升平台、再升插件。
 - **agent 级的呈现开关已删除**：旧配置里的 `toolPresentation` 键不再生效，也不必手工清理。
 - **呈现方式改成预设级三档**（继承部署默认 / 原生 / PTC），在顶栏按预设切；改完只对之后新建 / 重绑的会话生效。
 - **旧写法会被认出来**：预设里用 `@deepseek-ai/dsh-agent-tool-presentation` 声明呈现方式的，面板标成「原生（旧写法）」/「PTC（旧写法）」，点一次新的档位就换成新写法；选「继承部署默认」会把这份预设里的呈现行（新旧都算）一起删掉。

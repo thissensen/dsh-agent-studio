@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-studio",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "MIT",
   "type": "module",
   "description": "DSH 图形化 Agent 配置台：可视化拼装提示词、工具、技能、子代理与备用模型，按预设绑定即接管；自建预设走平台的预设注册入口，所有配置存在插件自己的数据里，卸载即恢复原状。",
@@ -52,7 +52,7 @@
     }
   },
   "engines": {
-    "dsh": ">=0.2.2-rc.1"
+    "dsh": ">=0.2.2-rc.2"
   },
   "files": [
     "lib",
@@ -66,12 +66,12 @@
     "js-yaml": "^4.2.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.2-rc.1",
-    "@deepseek-ai/dsh-scope": ">=0.2.2-rc.1",
-    "@deepseek-ai/dsh-settings": ">=0.2.2-rc.1",
-    "@deepseek-ai/dsh-system-prompt": ">=0.2.2-rc.1",
-    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.1",
-    "@deepseek-ai/dsh-util-values": ">=0.2.2-rc.1",
+    "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.2-rc.2",
+    "@deepseek-ai/dsh-scope": ">=0.2.2-rc.2",
+    "@deepseek-ai/dsh-settings": ">=0.2.2-rc.2",
+    "@deepseek-ai/dsh-system-prompt": ">=0.2.2-rc.2",
+    "@deepseek-ai/dsh-tools": ">=0.2.2-rc.2",
+    "@deepseek-ai/dsh-util-values": ">=0.2.2-rc.2",
     "@deepseek-ai/schemastery": "*"
   },
   "peerDependenciesMeta": {
@@ -80,6 +80,12 @@
     }
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-agent-preset-registry": "0.2.2-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.2",
+    "@deepseek-ai/dsh-scope": "0.2.2-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.2",
+    "@deepseek-ai/dsh-util-values": "0.2.2-rc.2",
+    "@deepseek-ai/schemastery": "3.19.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/js-yaml": "^4.0.9",

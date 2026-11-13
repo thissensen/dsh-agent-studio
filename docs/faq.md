@@ -6,7 +6,7 @@
 
 ## 支持哪些环境？
 
-纯 Web 版（`dsh --profile web`）与桌面版（`dsh --profile desktop`）都行——同一套 host 逻辑，平台版本要求也一样：需要 DSH `0.2.2-rc.1` 及以上（`engines.dsh` 与 `peerDependencies` 里的平台包同串）。下界是硬的：平台版本不够时，启动门禁整份跳过这个 bundle，插件市场也会拦住更新。升级时**先升平台、再升插件**。
+纯 Web 版（`dsh --profile web`）与桌面版（`dsh --profile desktop`）都行——同一套 host 逻辑，平台版本要求也一样：需要 DSH `0.2.2-rc.2` 及以上（`engines.dsh` 与 `peerDependencies` 里的平台包同串）。下界是硬的：平台版本不够时，启动门禁整份跳过这个 bundle，插件市场也会拦住更新。升级时**先升平台、再升插件**。
 
 ## 为什么某个预设的「提示词集」卡片是灰的？
 

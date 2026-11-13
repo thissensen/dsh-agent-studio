@@ -61,7 +61,10 @@ export function resolvePresetId(ctx: Ctx, agentCtx: unknown): string | undefined
  */
 export function describePresetResolution(ctx: Ctx, agentCtx: unknown): string[] {
     const service = ctx.get?.('agentPresets') as AgentPresetsService | undefined
-    const scopeKey = agentCtx === undefined ? undefined : scopeOf(agentCtx)
+    // `agent.ctx` 是 `unknown`，而 `scopeOf` 的入参是 cordis 的 `Context`——那个包在项目层解析不到，
+    // 只能用 `Parameters<typeof scopeOf>[0]` 把「它是 Context」这个编译期无法证明的事实写下来，
+    // 运行时值原样透传。
+    const scopeKey = agentCtx === undefined ? undefined : scopeOf(agentCtx as Parameters<typeof scopeOf>[0])
     const standingKey = scopeKey === undefined ? undefined : scopeParentOf(scopeKey)
 
     let scopeState = '未绑定'

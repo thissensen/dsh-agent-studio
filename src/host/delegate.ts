@@ -95,19 +95,17 @@ import {
 } from './delegate-batch.js'
 import { resolvePresetId } from './preset.js'
 
-/** 交给 `ctx.subagents.startActivation()` 的规格（`label` 与 `signal` 在顶层，不在 `request` 里）。 */
+/** 交给 `ctx.subagents.startActivation()` 的规格：rc.2 起是顶层扁平形状，`prompt` / `parent` / `agentOptions` 都在顶层。 */
 interface ActivationSpec {
     provider: string
     label: string
     childId: string
-    request: {
-        prompt: unknown[]
-        parent: unknown
-        agentOptions?: {
-            provider: string
-            model: string
-            reasoningEffort?: string
-        }
+    prompt: unknown[]
+    parent: unknown
+    agentOptions?: {
+        provider: string
+        model: string
+        reasoningEffort?: string
     }
     signal: AbortSignal
     /**
@@ -314,8 +312,9 @@ function noteOf(record: DelegateRecord): DispatchNote {
  *
  * 只翻译**启动时能定下来的**那些：模型路由在这里定；提示词面留给装配期；工具面在
  * 创建窗口挂（`agent/created`，见 `apply.js`）——那两样要改的是子代理的段与视图，
- * 不是启动参数。`childId` / `delivery` / `request.prompt` 留给调用点补：`delivery` 取决于
- * 这一批整体阻不阻塞。
+ * 不是启动参数。`childId` / `delivery` / `prompt` 留给调用点补：`delivery` 取决于
+ * 这一批整体阻不阻塞。规格是**顶层扁平**的（`prompt` / `parent` / `agentOptions` 都不在
+ * `request` 层里）——平台直接读 `spec.parent.id`，包一层就读不到活着的父 agent。
  *
  * @param agentConfig - 子代理的配置。
  * @param label - 给这次的显示名。
@@ -329,7 +328,8 @@ function activationSpecFor(agentConfig: AgentConfig | undefined, label: string, 
         provider: SPAWN_PROVIDER,
         label,
         childId: '',
-        request: { prompt: [], parent },
+        prompt: [],
+        parent,
         signal,
         delivery: 'caller',
     }
@@ -337,7 +337,7 @@ function activationSpecFor(agentConfig: AgentConfig | undefined, label: string, 
     // provider 与 model 必须成对给：只配一半是配置错误，让平台的校验把它报出来，
     // 不在这里猜另一半（猜错等于悄悄用了别的模型）。
     if (model.provider !== undefined && model.model !== undefined) {
-        spec.request.agentOptions = {
+        spec.agentOptions = {
             provider: model.provider,
             model: model.model,
             ...model.reasoningEffort === undefined ? {} : { reasoningEffort: model.reasoningEffort },
@@ -548,7 +548,7 @@ export function mountDelegation(ctx: Ctx, logger: Logger, settingsScope: Setting
                     const spec = activationSpecFor(target.agentConfig, label, callAgent, signal)
                     // 阻塞批要结果还给这次调用（当场等）；不阻塞批要平台把结算通知逐条投给父模型。
                     spec.delivery = isBlockingBatch ? 'caller' : 'parent'
-                    spec.request.prompt = [{ type: 'text', text: target.prompt }]
+                    spec.prompt = [{ type: 'text', text: target.prompt }]
 
                     // 预生成会话 id ⇒ 映射在创建**之前**写好，零竞态：`startActivation` 采纳调用方
                     // 指定的 `childId`（不支持的传输层已由上面那道守卫挡下）。

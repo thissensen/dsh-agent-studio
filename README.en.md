@@ -47,7 +47,7 @@ dsh plugin --profile web add dsh-agent-studio
 Download `dsh-agent-studio-<version>.tgz` from [Releases](https://github.com/thissensen/dsh-agent-studio/releases). It is the very artifact npm serves, with the `lib/` and `client/` build output already inside — no build step:
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.2.1.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.2.2.tgz"
 ```
 
 The file can live in any directory as long as the path is right (`./` or an absolute path); swap in whatever version you actually downloaded. **Use this route for offline or air-gapped setups.**
@@ -194,7 +194,7 @@ The two switches in the save row correspond to two top-level keys (unrelated to 
 ## Compatibility
 
 - **Target environment**: the pure web build (`dsh --profile web`) and the desktop build (`dsh --profile desktop`) both work — the desktop app is the web build plus an Electron shell, so the host half is identical and the platform version requirement is the same.
-- **Host services it depends on**: seven platform packages are listed in `peerDependencies` **with version ranges** (`>=0.2.2-rc.1`, the same range as `engines.dsh`) — that is what the plugin market and the platform use to decide whether the plugin may be installed: an old DSH gets the update blocked and the bundle skipped at startup instead of ending up with a plugin that will not start. Only `schemastery` is optional. The floor is the **minimum version for full functionality**: presentation and the tool surface follow the 0.2.2 platform contracts. The two tool executor packages (`-native` / `-ptc`) stay out of `peerDependencies` — the plugin only writes executor rows into preset compositions and never imports them.
+- **Host services it depends on**: seven platform packages are listed in `peerDependencies` **with version ranges** (`>=0.2.2-rc.2`, the same range as `engines.dsh`) — that is what the plugin market and the platform use to decide whether the plugin may be installed: an old DSH gets the update blocked and the bundle skipped at startup instead of ending up with a plugin that will not start. Only `schemastery` is optional. The floor is the **minimum version for full functionality**: presentation and the tool surface follow the 0.2.2 platform contracts. The two tool executor packages (`-native` / `-ptc`) stay out of `peerDependencies` — the plugin only writes executor rows into preset compositions and never imports them.
 - **Interface language and theme** follow the platform; Chinese and English copy ship with it, and both dark and light themes are supported.
 - **The client half has no build step**: `client/index.js` is the shell (loaded at startup) and `client/parts/panel.js` is the panel (served on demand by a host route).
 
@@ -214,8 +214,15 @@ The two switches in the save row correspond to two top-level keys (unrelated to 
 
 ## Upgrading from the previous release
 
-- **Only DSH `0.2.2-rc.1` and above is supported** — there is no compatibility branch for older platforms.
-- **Upgrade the platform first, then the plugin**: when the plugin's floor is above the platform you run, the startup gate skips the whole bundle — the plugin looks gone rather than crashing.
+- **Only DSH `0.2.2-rc.2` and above is supported** — there is no compatibility branch for older platforms.
+- **Upgrade the platform first, then the plugin**: when the plugin's floor is above the platform you run, the startup gate skips the whole bundle — the plugin looks gone rather than crashing. rc.2 of the platform ships only on npm's `next` channel while `latest` still sits on rc.1 — installing from `latest` never reaches this plugin's floor. Check the tags once before installing:
+
+  ```sh
+  npm view @deepseek-ai/dsh dist-tags          # expect next = 0.2.2-rc.2 (`latest` is still rc.1)
+  npm install @deepseek-ai/dsh@next            # or spell it out: @deepseek-ai/dsh@0.2.2-rc.2
+  ```
+
+  Once the platform is on rc.2, install the plugin with the command under Install above — platform first, plugin second, still.
 - **The per-agent presentation switch is gone**: the old `toolPresentation` key no longer takes effect, and you do not have to clean it up by hand.
 - **Presentation is now per preset, in three modes** (deployment default / native / PTC), switched from the top bar; a change applies only to sessions created or re-bound afterwards.
 - **Old declarations are recognised**: a preset that declares its presentation through `@deepseek-ai/dsh-agent-tool-presentation` is labelled "Native (legacy form)" / "PTC (legacy form)"; picking a new mode once rewrites it to the current form, and picking "Deployment default" removes every presentation row of that preset, legacy or current.

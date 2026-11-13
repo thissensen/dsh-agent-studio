@@ -6,7 +6,7 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactElement, ReactNode } from 'react'
-import { Button, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, useAnchoredPosition } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CopyKey, Translate } from '../locales'
 import type { BackgroundMode } from '../../host/types'
 import type { PresetPresentation } from '../../host/preset-presentation'
@@ -30,7 +30,7 @@ import type {
     CandidateRowProps,
 } from './panel-types'
 
-const { useEffect, useRef, useState } = React
+const { useEffect, useId, useRef, useState } = React
 
 export const h = React.createElement
 
@@ -174,8 +174,8 @@ export function menuAnchor(props: MenuAnchorProps): ReactElement {
 export function HelpTip(props: HelpTipProps): ReactElement {
     const { text, children, size = 'default' } = props
     const [open, setOpen] = useState(false)
-    const anchorRef = useRef<HTMLSpanElement | null>(null)
-    const cardRef = useRef<HTMLDivElement | null>(null)
+    // 锚点与卡片靠锚点名配对，名字必须逐实例唯一；React 的 id 带冒号，去掉才是合法的锚点名。
+    const anchorName = `--dsh-agent-studio-help-${useId().replaceAll(':', '')}`
     const timerRef = useRef<number | null>(null)
     const closeTimerRef = useRef<number | null>(null)
 
@@ -207,18 +207,6 @@ export function HelpTip(props: HelpTipProps): ReactElement {
         closeTimerRef.current = window.setTimeout(() => setOpen(false), 120)
     }
 
-    // 定位用平台的 `useAnchoredPosition`（与平台浮层同一套几何）：跟随滚动、跟随卡片
-    // 自身尺寸变化，并把结果夹在视口内。它只支持上下两个方向 ⇒ 卡片落在锚点下方、右对齐。
-    const pos = useAnchoredPosition({
-        open,
-        anchorRef,
-        panelRef: cardRef,
-        side: 'bottom',
-        align: 'end',
-        gap: 8,
-        margin: 8,
-    })
-
     // 卸载时把两个定时器清掉（面板随时可能被折叠/切走）。
     useEffect(() => () => {
         clearOpenTimer()
@@ -228,20 +216,15 @@ export function HelpTip(props: HelpTipProps): ReactElement {
     const anchor = h('span', {
         // Fragment 的两个子项按数组渲染 ⇒ 都要 key（同类问题见 `FieldRow` 的 children）。
         key: 'anchor',
-        ref: anchorRef,
         onPointerEnter: () => scheduleOpen(),
         onPointerLeave: () => scheduleClose(),
-        style: children === undefined ? HELP_ANCHOR : HELP_ANCHOR_FLEX,
+        style: { ...(children === undefined ? HELP_ANCHOR : HELP_ANCHOR_FLEX), anchorName },
     }, children ?? '?')
 
     if (!open) return anchor
 
     const card = h('div', {
-        ref: cardRef,
-        style: {
-            ...(size === 'wide' ? HELP_CARD_WIDE : HELP_CARD),
-            ...(pos === null ? { visibility: 'hidden' } : pos),
-        },
+        style: { ...(size === 'wide' ? HELP_CARD_WIDE : HELP_CARD), positionAnchor: anchorName },
         onPointerEnter: () => clearCloseTimer(),
         onPointerLeave: () => scheduleClose(),
     }, text)
