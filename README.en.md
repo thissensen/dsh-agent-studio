@@ -11,7 +11,7 @@ A visual configuration plugin for [DeepSeek Harness](https://github.com/deepseek
 
 Every turn, the model sees three things: the **system prompt**, the **tool catalog**, and the **skill catalog**. The more plugins, tools and MCP servers you install, the bigger those three get, and the worse the model performs. On top of that, DSH's subagent configuration is bare-bones: there is no easy way to give a subagent its own prompt, tools, skills, model or reasoning effort.
 
-This plugin fixes both. It turns an agent into bricks you can assemble freely: prompt, tools, skills, model. **Subagents get the same treatment**, presets can be created on the spot, and how tools are presented is a per-preset choice of three modes (deployment default / native / PTC), switched right in the top bar. A fallback chain may span providers.
+This plugin fixes both. It turns an agent into bricks you can assemble freely: prompt, tools, skills, model. **Subagents get the same treatment**, presets can be created on the spot, and how tools are presented is a per-preset choice of three modes (deployment default / native / PTC), switched right in the top bar. A subagent can also carry a fallback chain across providers: a failure moves down the chain, the switch leaves a visible notice in the conversation, and the main agent always stays on the model you pick in the chat window.
 
 Its configuration **lives in the plugin's own data**, it leaves the host's existing presets untouched, and uninstalling restores everything.
 
@@ -29,7 +29,7 @@ It pairs well with [dsh-context](https://github.com/bowenliang123/dsh-context), 
 | Subagent execution mode is hard to pin down | The platform follows the executor row mounted in the preset; the panel offers no choice | A subagent's execution mode is decided by its own preset (platform mechanism); switch three modes per preset in the panel |
 | Different jobs want different prompts, tools and skills, and switching is a chore | A preset only swaps the prompt; tools and skills stay one global set | Switch the agent bound to that preset, and you're done |
 | A local model is short on context and barely lasts a few turns | You cannot clear the prompt out entirely; you have to hand-build a preset | Create an agent with nothing loaded and bind it to the preset — a truly empty prompt |
-| The primary model gets rate-limited or goes down, and the whole turn fails | Retries within one provider up to a limit, then gives up | Configure a chain of fallback models (possibly across providers); failures move down the chain (optional) |
+| A subagent's model gets rate-limited or goes down, and the whole turn fails | Retries within one provider up to a limit, then gives up | Give that subagent a chain of fallback models (possibly across providers): failures move down the chain, and a switch leaves a visible notice in the conversation |
 
 ## Install
 
@@ -47,7 +47,7 @@ dsh plugin --profile web add dsh-agent-studio
 Download `dsh-agent-studio-<version>.tgz` from [Releases](https://github.com/thissensen/dsh-agent-studio/releases). It is the very artifact npm serves, with the `lib/` and `client/` build output already inside — no build step:
 
 ```sh
-dsh plugin --profile web add "./dsh-agent-studio-0.2.2.tgz"
+dsh plugin --profile web add "./dsh-agent-studio-0.2.3.tgz"
 ```
 
 The file can live in any directory as long as the path is right (`./` or an absolute path); swap in whatever version you actually downloaded. **Use this route for offline or air-gapped setups.**
@@ -137,14 +137,17 @@ A binding takes over. The same rule on all three surfaces: **loading nothing mea
 | Tool sets | Loading none at all = no tools at all |
 | Skill sets | Loading none at all = no skills exposed; load one and only the checked ones are |
 
-## Automatic model fallback (optional)
+## Automatic fallback for subagents: the relay layer (optional)
 
-Configure a chain of **fallback models** for an agent, and a failure of the primary is followed down the chain. **No fallbacks configured = no takeover at all** — retries then behave exactly as the platform default.
+Give an agent a chain of **fallback models**, and when that agent is dispatched **as a subagent** a failing primary is followed down the chain. The plugin does this by registering one extra provider, **"中转 / Relay"**, in the chat model picker: every agent with a fallback chain shows up there as one entry (named after the agent, with the chain itself in its description), and dispatch goes through it. Candidate switching happens entirely inside the plugin, so the identity the platform sees never changes and the session's retry chain stays intact.
 
+- **Subagents only.** The main agent always runs the model you picked in the chat window; it is **never downgraded automatically**, and the primary model plus fallbacks configured here apply to subagents alone.
 - **Retries**: an upper bound **per candidate**, default 5 (aligned with the platform default). Retryable errors (empty response / rate limit / server error / timeout / transport) are retried on the current candidate up to that bound before moving on; quota exhaustion, bad credentials and the like move on immediately.
-- **How the chain is ordered**: subagents = the route given at start (inherited when the agent has no model) to fallbacks; main agents = the model chosen in the chat window to the main-model config to fallbacks. Your choice is **never overridden**; when everything is fine the plugin does not touch it.
-- **What failure looks like**: the whole chain exhausted = that request fails for good (same as the platform). After a switch the session **does not switch back on its own**; change the model in the chat window and the plugin steps aside.
-- **Visible**: retries and switches are written into the session (the panel's "retrying model request (N/M)" line comes from it), and a switch also leaves the model a notice that earlier turns were produced by the previous model.
+- **How the chain is ordered**: the agent's own primary model, then its fallbacks (the same provider + model counts once). An incomplete primary, or fallbacks that boil down to nothing after de-duplication, keeps that agent **out of the relay** — dispatch then behaves exactly as before.
+- **Visible**: retries are written into the session (the "retrying model request (N/M)" line in the chat UI comes from it), and a switch leaves a visible notice in the conversation: `[model fallback: <A> failed (<code>); the session continues with <B>]`.
+- **What failure looks like**: the whole chain exhausted = that request fails for good (same as the platform). After a switch the session **does not switch back on its own**.
+- **No fake models in settings**: the panel's model picker lists real providers only; relay entries show up **in the chat picker alone**.
+- **Your configuration needs no changes**: `model`, `maxRetries` and `fallbacks` mean exactly what they meant before.
 
 ## Quick start
 
@@ -154,7 +157,7 @@ Configure a chain of **fallback models** for an agent, and a failure of the prim
    - **Custom**: your own body, supporting the platform's registered `{{variable}}` interpolation. Writing a variable the platform has not registered fails that request outright.
 3. **Create a tool set** and check the tools you want to keep. `skill` is required — without it the model cannot invoke skills on its own.
 4. **Create a skill set** and check the skills to expose. Candidates are grouped by source, collapsible, and whole groups can be checked at once — opening the panel queries the official skill service right away, no message needed first.
-5. **Create an agent**: name it and write its note (when it acts as a subagent, the model picks by that note), load the sets above, pick its background mode (Non-blocking / Blocking). **Presentation is switched per preset in the top bar**, not here. **Dispatch is always a batch of `tasks`** (a single dispatch is a one-entry array); whether it waits is decided by the target agent's own background mode. The subagent roster lives here too. Configure a chain of **fallback models** too if you want (see the section above; optional).
+5. **Create an agent**: name it and write its note (when it acts as a subagent, the model picks by that note), load the sets above, pick its background mode (Non-blocking / Blocking). **Presentation is switched per preset in the top bar**, not here. **Dispatch is always a batch of `tasks`** (a single dispatch is a one-entry array); whether it waits is decided by the target agent's own background mode. The subagent roster lives here too. Give it a chain of **fallback models** too if you want — it kicks in only when the agent is dispatched as a subagent (see the section above; optional).
 6. **Bind** that agent to a platform preset.
 7. **Save.** Nothing is written until you press save — **don't forget it**.
 
@@ -171,8 +174,8 @@ agent-studio:
       name: Code review
       note: Read-only review and advice   # when used as a subagent, the model picks by this
       model: { provider: deepseek, model: deepseek-v4.1-flash, reasoningEffort: medium }
-      maxRetries: 5                   # per-candidate retry bound for automatic fallback (default 5)
-      fallbacks:                      # the fallback chain (possibly across providers); empty = no takeover
+      maxRetries: 5                   # per-candidate retry bound for the relay layer (default 5)
+      fallbacks:                      # the fallback chain (possibly across providers); empty = stays out of the relay
         - { provider: senseaudio, model: glm-5.3-flash }
       background: foreground          # always-background | foreground
       promptSets: [review-sections]   # ordered: the order here is the delivery order of sections
@@ -208,7 +211,7 @@ The two switches in the save row correspond to two top-level keys (unrelated to 
   - **At least one entry blocks ⇒ `{ kind: 'foreground-batch', results, filePath?, fileError? }`**: the whole batch starts together and waits together, returning once everything has settled; each item is `{ agent, ok, subagentId?, description?, error? }`. The batch itself has no limit, but the platform caps how many subagents run at once (adjustable in the platform settings); entries over the cap each come back as an error telling you to **re-dispatch that one on its own**, while the rest keep running — one failure does not take the batch down.
   - **A blocking batch's result is always written to disk; the conversation keeps one line pointing at it.** The batch is written to one `.md` under the system temp directory — `<system temp>/dsh-agent-studio/<short hash of the session id>/delegate-<UTC timestamp>.md` — and that path comes back as the top-level `filePath`. The file holds the **bodies of the successful entries**, one section per original index; failed entries have no body, their reason stays in the result. What the model sees in the conversation is that one path line: `本批结果已写入：<path>（共 N 项：M 成功 · K 失败）` (the plugin's runtime copy is Chinese, so the line itself reads Chinese), plus one line per failed entry (`【index】agent (name) — label · 失败 · reason`), and one more line `子代理：【index】<id>、…` listing every subagent session of this batch you can keep talking to (entries that failed to start have no id and stay off that line). **Bodies never enter the conversation** — read the file by that path if you need them; `results` never carries the bodies either (not even when the write fails). When the write fails the result carries `fileError` instead and that line reports the reason: `文件没写成（<reason>）（共 N 项：M 成功 · K 失败）`. The plugin **never cleans these files up**.
 - **Tool candidates no longer need a prior conversation.** A registered preset is activated immediately, so the panel reads that preset's current tool surface directly (`GET /tools?preset=`); only when that read fails (no tool service, broken preset) does it fall back to the per-preset on-disk observation cache.
-- **Automatic fallback only takes over when fallbacks are configured.** With no fallbacks configured the plugin never touches the request and retries behave exactly as the platform default; after takeover the retry bound comes from the plugin's config (counted per candidate).
+- **Automatic fallback applies to subagents only.** An agent enters the relay once it has a whole chain (a complete primary plus at least one different fallback), and only then is dispatch routed through it; the plugin never rewrites the main agent's requests — that side always runs the model you picked in the chat window. An exhausted chain still fails that request, same as the platform.
 - **"Lift the PTC 120-second cap" is process-wide, and it is on by default.** It sits to the right of Register on main page in the save row and writes itself as soon as you click — it never enters the draft: it raises the budget of PTC-mode `run_code` programs from the default 120 seconds to the platform timer limit (about 24.8 days). Three things to remember: ① it applies only to PTC mode, and it is **process-wide** — the main agent, subagents and every program are lifted together; ② time spent waiting on background jobs and on nested tools draws from this same budget; ③ with it on, a broken infinite loop will hardly ever stop by itself — you have to interrupt it. It is on by default because Blocking dispatches often wait longer than 120 seconds.
 - **Under native presentation, `subagent` / `list_subagent_models` show up in the tool declarations again.** Both are registered on the agent's own layer, which `restrict()` deliberately cannot reach, and declaration-level trimming has no hook in 0.2.2 — a guard rejects the call instead: the model can see them but cannot call them. Under PTC they are trimmed out of the `tools:sdk` body, so this does not happen.
 
@@ -234,7 +237,7 @@ Four breaking changes to read before you upgrade:
 - **An old "AI decides" now reads as Non-blocking.** Background modes are down to two (Non-blocking / Blocking); the old third value `model-decides` is read as Non-blocking — a **behavior flip**: it used to let the model decide on the spot whether to wait, and now it never waits.
 - **The "Merge subagent results" switch is gone and batching is always available.** The `mergeSubagentResults` field no longer exists; `studio_delegate` always takes a batch of `tasks`, with no switch to turn on first.
 - **The `run_in_background` parameter and the single-dispatch parameters are deleted.** `agent` / `prompt` went with it: the model must use `tasks` (a single dispatch is a one-entry array), and whether it waits depends only on each target agent's own background mode.
-- **Background batches no longer send a summary, and "spill only when too long" became "always write a file".** Background batches, `batchId` and the summary message are all gone, replaced by the platform's own **per-subagent settlement notices** — one per subagent, each carrying its full closing text. The old spill fallback (write a file only when the result was too long) is gone too: every blocking batch now writes one file, and the conversation keeps only the path line, the subagent line and the list of failed entries (see Known limits).
+- **Background batches no longer send a summary, and "spill only when too long" became "always write a file".** Background batches, `batchId` and the summary message are all gone, replaced by the platform's own **per-subagent settlement notices** — one per subagent, each carrying its full closing text. The old spill-to-disk behaviour (write a file only when the result was too long) is gone too: every blocking batch now writes one file, and the conversation keeps only the path line, the subagent line and the list of failed entries (see Known limits).
 
 ## Layout
 
@@ -244,11 +247,12 @@ lib/                  host-half output (the package's real entry; tsc from src/h
   config.js           the four-pool schema + load-overlap check (single source of truth for the data model)
   preset.js           the one way to ask "which preset is this agent on"
   observe.js          read-only observation layer at assembly time
-  cache.js            on-disk cache of observations (fallback when the live `/tools` endpoint cannot be read)
+  cache.js            on-disk cache of observations (used when the live `/tools` endpoint cannot be read)
   apply.js            the apply layer (main-agent assembly + subagent creation window)
   delegate.js         delegation tools + subagent identity registry (session id → agent)
   delegate-batch.js   blocking-batch path line and on-disk layout (one line + subagent line + failed-entry list, one section per entry)
-  fallback.js         automatic model fallback (candidate chain / per-candidate retries / switch notice)
+  relay.js            the relay layer: "one agent = one candidate chain" as a virtual provider the platform knows
+  relay-state.js      relay state machine and notice data (candidate chain / per-candidate retries / switch notice)
   presets.js          preset management (list / copy / delete, via official services)
   preset-registry.js  runtime registry for self-made presets (who registered, disposers, replay on restart)
   preset-yaml.js      the YAML dialect for preset composition declarations (one definition for read and write)
@@ -261,7 +265,7 @@ lib/                  host-half output (the package's real entry; tsc from src/h
   http-guard.js       HTTP request fence and response helpers
   types.js            shared types (types only, no runtime code)
 client/               client-half output
-  index.js            shell: module registration + runtime panel loading + failure fallback card
+  index.js            shell: module registration + runtime panel loading + failure card
   parts/panel.js      the panel (served by the host at runtime; refresh the page after editing it)
 src/host/  src/client/   source of truth (tsc → lib/, vite → client/)
 types/                host type declarations

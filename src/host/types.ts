@@ -209,6 +209,42 @@ export interface PtcRuntimeService {
 }
 
 /**
+ * 平台的 `llm` 服务（实现是 `LlmRuntime`）。只声明本插件用到的成员。
+ *
+ * 中转层要的不止「列模型」：`registerAdapter()` 拿虚拟 provider、`resolveModelInfo()`
+ * 读候选的真实元数据、`stream()` 把这次调用转给内层候选。返回值一律 `unknown`：
+ * 平台会把它自己校验过一遍再交给上层（`normalizeModelInfo`），这里再抄一套类型只会漂移。
+ */
+export interface LlmService {
+    /** 注册 provider 路由；返回的 handle 随注册方 fiber 卸载自动释放。 */
+    registerAdapter(providers: string[], adapter: unknown): unknown
+    /** 发起一次模型调用（公开入口，走 `llm/stream` 瀑布）。 */
+    stream(options: unknown): AsyncIterable<unknown>
+    /** 解析一个确切 provider/model 的元数据（上下文窗口、输入模态、推理档位）。 */
+    resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<unknown>
+    listProviders(): { id: string; name: string }[]
+    listModels(provider: string): Promise<unknown[]>
+}
+
+/** 平台的 `sessions` 服务：按会话 id 取还活着的会话。 */
+export interface SessionsService {
+    get(id: string): SessionLike | undefined
+}
+
+/**
+ * 平台的一条会话（`dsh-session` 的 `Session`）。只声明中转层用到的成员。
+ *
+ * `append()` 写 surface 事件（`user/message` 这类进上下文的事件）**必须**带 `surfaceOp`，
+ * 缺了直接抛（`dsh-session/src/surface.ts:316-318`）。
+ */
+export interface SessionLike {
+    id: string
+    append(type: string, data: unknown, opts?: { surfaceOp?: 'append' | 'replace' }): unknown
+    /** 已落盘的请求头；`config` 是这次请求实际走的 provider/model。 */
+    requestHeader?(): { config?: { provider?: string; model?: string } } | undefined
+}
+
+/**
  * 插件所在的 context。
  *
  * `[key: string]: unknown` 让各文件能就地断言自己用到的宿主细节（比如 `tools`
@@ -219,9 +255,10 @@ export interface Ctx {
     get?<T = unknown>(name: string): T
     /**
      * 注册事件监听。`options.prepend` 把监听器排到链首——瀑布事件里谁在前谁先拿决策权，
-     * 自动降级要靠它抢在内置重试（`dsh-llm-retry`）之前。
+     * 自动降级要靠它抢在内置重试（`dsh-llm-retry`）之前；`options.global` 让会话级事件
+     * （`session/disposed` 等）连别的插件建的会话也一起报上来。
      */
-    on(event: string, handler: (...args: unknown[]) => void, options?: { prepend?: boolean }): void
+    on(event: string, handler: (...args: unknown[]) => void, options?: { prepend?: boolean; global?: boolean }): void
     /**
      * cordis 的生命周期挂载点（`Context extends Pick<Fiber,'effect'>`）：回调里返回一个清理函数，
      * 插件卸载时按逆序执行。用法照平台：`effect(() => { …; return dispose })`。

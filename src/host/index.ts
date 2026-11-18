@@ -28,7 +28,7 @@ import { mountAttribution } from './attribution.js'
 import { mountObservation } from './observe.js'
 import { mountApply } from './apply.js'
 import { mountDelegation } from './delegate.js'
-import { mountFallback } from './fallback.js'
+import { mountRelay } from './relay.js'
 import { mountApi } from './api.js'
 import { mountPtcBudget } from './ptc-budget.js'
 import { createPresetRegistry } from './preset-registry.js'
@@ -137,11 +137,14 @@ export function apply(ctx: Ctx, config: unknown) {
             logger.error?.('[agent-studio] 派活工具未挂上；配置写入不受影响', err)
         }
 
+        // 中转层：注册一个虚拟 provider（每个有候选链的代理 = 一个模型），失败后换候选全在
+        // 本层内部推进；平台侧的路由从头到尾不动（不再是改写请求的那条老路）。
+        // 它自己内部 `inject(['llm'])` 并注册 adapter，所以挂在这一层、不另包注入回调。
         try {
-            mountFallback(ctx, logger, scope)
+            mountRelay(ctx, logger, () => readConfig(config))
 
         } catch (err) {
-            logger.error?.('[agent-studio] 模型自动降级未挂上；配置写入不受影响', err)
+            logger.error?.('[agent-studio] 中转层未挂上；配置写入不受影响', err)
         }
     })
 }

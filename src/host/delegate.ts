@@ -94,6 +94,8 @@ import {
     startedText,
 } from './delegate-batch.js'
 import { resolvePresetId } from './preset.js'
+import { RELAY_PROVIDER, chainOf } from './relay-state.js'
+import { relayReady } from './relay.js'
 
 /** 交给 `ctx.subagents.startActivation()` 的规格：rc.2 起是顶层扁平形状，`prompt` / `parent` / `agentOptions` 都在顶层。 */
 interface ActivationSpec {
@@ -287,11 +289,15 @@ function describeSubagent(agentConfig: AgentConfig): string {
     const route = model.provider === undefined || model.model === undefined
         ? '继承本会话'
         : `${model.provider}/${model.model}`
+    // 名册说的始终是**真实模型**（不是中转层的虚拟 id）：派活的人看的是这个代理实际跑谁。
+    // 有候选链才补「备用 N」——没链的代理文案一个字都不改。
+    const chain = chainOf(agentConfig)
+    const standby = chain === undefined ? '' : ` · 备用 ${chain.routes.length - 1}`
     const name = agentDisplayName(agentConfig)
     const note = agentConfig?.note !== '' ? `：${agentConfig.note}` : ''
     const background = agentConfig?.background ?? 'always-background'
 
-    return `- ${agentConfig?.id} — ${name}${note}（模型 ${route} · 后台 ${background}）`
+    return `- ${agentConfig?.id} — ${name}${note}（模型 ${route}${standby} · 后台 ${background}）`
 }
 
 /**
@@ -332,6 +338,22 @@ function activationSpecFor(agentConfig: AgentConfig | undefined, label: string, 
         parent,
         signal,
         delivery: 'caller',
+    }
+
+    // 有候选链、且中转层已注册 ⇒ 平台侧路由换成虚拟 provider（model = 代理 id）。
+    // 候选的推进发生在本层内部，平台看见的身份必须**稳定不动**：平台禁止在一次请求里改
+    // provider/model，换候选若做在平台侧就只能改写请求头，那条老路已被平台禁掉。
+    // 没链、半配（主候选不完整）、或中转层没挂上时一律不改写，完全保持原行为。
+    const chain = agentConfig === undefined ? undefined : chainOf(agentConfig)
+    const useRelayRoute = chain !== undefined && chain.agentId !== '' && relayReady()
+    if (useRelayRoute) {
+        spec.agentOptions = {
+            provider: RELAY_PROVIDER,
+            model: chain.agentId,
+            ...model.reasoningEffort === undefined ? {} : { reasoningEffort: model.reasoningEffort },
+        }
+
+        return spec
     }
 
     // provider 与 model 必须成对给：只配一半是配置错误，让平台的校验把它报出来，
